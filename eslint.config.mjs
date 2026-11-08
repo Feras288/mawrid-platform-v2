@@ -27,7 +27,7 @@ export default tseslint.config(
     rules: { "react-hooks/rules-of-hooks": "error", "react-hooks/exhaustive-deps": "warn" },
   },
   {
-    files: ["**/cli/**/*.ts", "apps/worker/**/*.ts", "tests/**/*.ts", "**/test/**/*.ts", "**/e2e/**/*.ts"],
+    files: ["**/cli/**/*.ts", "scripts/**/*.ts", "apps/worker/**/*.ts", "tests/**/*.ts", "**/test/**/*.ts", "**/e2e/**/*.ts"],
     rules: { "no-console": "off" },
   },
 );
