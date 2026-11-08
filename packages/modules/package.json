@@ -1,0 +1,18 @@
+{
+  "name": "@platform/modules",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": "./src/*/index.ts"
+  },
+  "scripts": { "typecheck": "tsc -p tsconfig.json" },
+  "dependencies": {
+    "@platform/core": "workspace:*",
+    "@platform/db": "workspace:*",
+    "@platform/integrations": "workspace:*",
+    "drizzle-orm": "0.45.4",
+    "file-type": "22.3.0",
+    "zod": "4.6.7"
+  }
+}

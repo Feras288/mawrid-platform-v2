@@ -1,0 +1,105 @@
+# Architecture & Decision Log
+
+## ADR-000 — Plan approval and autonomy scope (2026-11-08)
+The project owner approved the full architectural and execution plan (phases 1–10) on 2026-11-08,
+authorizing autonomous execution and automatic phase-to-phase progression without further approvals,
+except for sensitive operations and genuine blockers requiring owner input.
+
+Owner's binding notes attached to the approval (verbatim intent):
+1. RLS + TenantContext must support buyer↔supplier relationships without exposing other organizations'
+   data, with real security tests that exercise actual database connections (non-owner role).
+2. Ordering/payment flows are separated from real financial settlements. Production collection or
+   settlements must not be enabled before the business model and regulatory requirements are decided.
+3. Implement every feature/integration that can be implemented and tested. "Integration Pending" is
+   reserved for parts that truly require external accounts, keys or approvals.
+4. Manage machine resources: run heavy builds/tests sequentially when needed, never disable tests or
+   ignore results.
+5. Maintain a Requirements Traceability Matrix (`docs/RTM.md`) linking each original requirement →
+   module → acceptance criterion → tests → final result. The project is not complete until it is reviewed.
+
+Out of scope without explicit approval: production deployment, real financial operations, destructive
+operations (DB drops on real data, history rewrites), pushing to remote repositories.
+
+## ADR-001 — Modular monolith in a pnpm/Turborepo monorepo
+Clear module boundaries with low operational cost. Heavy work isolated in a worker process.
+**Refinement (2026-11-08):** domain modules live in one workspace package `@platform/modules` with one
+folder per module (public API via `src/<module>/index.ts`) instead of ~24 separate packages. Boundaries
+are enforced by ESLint `no-restricted-imports` (no deep imports into another module). Rationale: far
+less build/config overhead with the same logical isolation; splitting a folder into a package later is
+mechanical.
+
+## ADR-002 — Single Next.js app with portal route groups
+Next.js 16 (App Router), React 19. Portals: store, account, org (procurement), supplier, admin under
+`/[locale]`. Shared design system in `apps/web/src/components/ui`.
+
+## ADR-003 — Services independent of Next.js
+Business logic in `@platform/modules`, invoked by Server Actions (UI) and REST route handlers
+(`/api/v1`, Zod-validated). Services receive an explicit `Ctx` (actor, active org, permissions).
+
+## ADR-004 — Worker process with BullMQ on Valkey/Redis
+Outbox dispatcher, BOQ pipeline, email, PDF, price-index aggregation, scheduled jobs.
+
+## ADR-005 — PostgreSQL 17 + Drizzle ORM (node-postgres driver)
+Extensions: pg_trgm, unaccent, pgcrypto, vector (pgvector, optional usage). Image `pgvector/pgvector:pg17`.
+Migrations: drizzle-kit generated SQL + hand-written SQL for roles/RLS/functions, applied in order by
+our migrator (tracks applied files and checksums).
+
+## ADR-006 — Identifiers
+UUIDv7 primary keys (time-ordered, not guessable enough to replace authorization — they never do).
+Human document numbers (`RFQ-2026-000012`, `PO-…`, `ORD-…`) from per-organization counters with
+row-level locking.
+
+## ADR-007 — Money
+`numeric(18,2)` amounts, `numeric(18,4)` unit prices and quantities, `decimal.js` in code.
+Rounding: ROUND_HALF_UP to 2 dp per line; VAT computed per line then summed. Currency column (SAR default).
+
+## ADR-008 — Authentication: Better Auth
+Email+password (scrypt hashing by Better Auth), email verification, password reset, TOTP 2FA plugin,
+DB sessions with secure cookies, built-in rate limiting. Own tables for memberships/roles/permissions.
+
+## ADR-009 — Isolation: TenantContext + RBAC/ABAC + Postgres RLS
+Runtime connects as `app_user` (NOSUPERUSER, NOBYPASSRLS). Each unit of work runs in a transaction
+that sets `app.user_id`, `app.org_id`, `app.mode` (`user` | `system`) via `set_config(..., true)`.
+Cross-party access (buyer↔supplier) is resolved through SECURITY DEFINER helper functions over bridge
+tables (`rfq_recipients`, `purchase_orders.supplier_org_id`, `order_groups.supplier_org_id`) to avoid
+recursive policies. `system` mode is only set by worker/system code paths.
+
+## ADR-010 — Outbox + idempotency
+`outbox_events` written in-transaction; dispatcher uses `FOR UPDATE SKIP LOCKED`. `idempotency_keys`
+table keyed by (scope, key) storing request hash + response.
+
+## ADR-011 — UI stack
+Tailwind CSS v4, Radix primitives (shadcn-style components owned in repo), logical CSS properties for
+RTL, next-intl (ar default, en), fonts IBM Plex Sans Arabic + Inter via next/font.
+
+## ADR-012 — PDF generation
+HTML templates rendered by Chromium (Playwright) in the worker; deterministic templates in ar/en.
+
+## ADR-013 — Object storage
+S3 API via AWS SDK v3; local SeaweedFS S3 gateway (image already available on host; MinIO community
+images are no longer reliably published). Private buckets only, presigned URLs (≤5 min).
+
+## ADR-014 — Email
+Nodemailer SMTP adapter; disabled-safe when SMTP_* unset (deliveries recorded as `skipped_no_config`).
+Mailpit in local dev.
+
+## ADR-015 — Observability
+pino JSON logs with redaction, `/api/health` (liveness) and `/api/ready` (DB/Redis), optional
+Sentry-compatible DSN.
+
+## ADR-016 — Testing
+Vitest unit + integration against real Postgres (separate test database, real `app_user` role),
+Playwright E2E + axe-core. GitHub Actions CI.
+
+## ADR-017 — Brand decoupling
+Package scope `@platform/*`; brand strings only from env/config and i18n messages.
+
+## ADR-018 — TypeScript 6.0 (not 7.0)
+TypeScript 7.0 (native Go port) is the npm `latest`, but Next.js, typescript-eslint and drizzle-kit
+rely on the JS compiler API. TS 6.0.x is used for ecosystem compatibility. Revisit when tooling supports 7.
+
+## ADR-019 — Business defaults (owner may change; see BLOCKERS.md)
+Supplier = seller of record; platform = intermediary. Commission/subscriptions configurable, default off.
+Payments via provider abstraction (Moyasar adapter, bank transfer, test provider in non-prod).
+Settlements module computes payables but executes nothing real (feature flag off + prod guard).
+Price index publication: ≥5 observations from ≥3 independent orgs, 90-day window (configurable).

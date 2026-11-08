@@ -1,0 +1,50 @@
+# BOQ Engine
+
+## Pipeline (job `boq.process`, resumable by stage)
+```
+received → validating → stored → extracting → parsed → normalizing → matching → needs_review → approved
+                     ↘ failed (with error code; retryable stages re-run idempotently)
+```
+1. **Receive**: upload via authorized endpoint; `files` row + `boq_documents` row (status `received`).
+2. **Validate**: magic bytes, size, sheet/page count limits; reject executables/macros (xlsm rejected).
+3. **Store**: private S3 key `org/<org>/boq/<doc>/<uuid>`; checksum sha256 (duplicate upload warning).
+4. **Extract** (by format):
+   - XLSX: exceljs; each sheet scanned for a header row (scored keyword match in ar/en:
+     description/الوصف/البيان, qty/الكمية, unit/الوحدة, item/رقم البند, rate/السعر). Merged cells and
+     multi-row descriptions handled; section headers (rows w/o qty) become `section` context.
+   - CSV: papaparse with delimiter/encoding detection, same header detection.
+   - Text PDF: unpdf text items with coordinates → line clustering by y → column inference by x gaps.
+   - Scanned PDF / images: AI vision provider (if org allows external AI) else tesseract (ara+eng) if
+     available; else document marked `needs_manual_entry` (manual grid entry remains available).
+   - User can override detected column mapping and re-run from `parsed`.
+5. **Parse lines**: raw text, description, quantity (Arabic-Indic digits, thousands separators), unit,
+   item code, section/system, provenance (sheet, row / page, line).
+6. **Normalize**: Arabic normalization (alef forms, ya/alef maqsura, ta marbuta, tatweel, diacritics),
+   unit canonicalization (m, lm, م.ط → `m`; no, nos, pcs, عدد → `pc`; m2/م2/sqm → `m2` …),
+   attribute extraction by rules: diameter (mm/inch, Ø), pressure class (PN), voltage, power (kW/HP),
+   cable size (`4x16mm²`), material (uPVC, PPR, GI, copper, HDPE…), thickness, length, brand hints.
+7. **Match** (`matching` module): candidates scored by
+   - hard filters: category/system compatibility, unit dimension compatibility, critical attribute
+     equality (a critical attribute present on both sides and unequal ⇒ candidate rejected);
+   - lexical score: pg_trgm similarity on normalized names + token overlap;
+   - attribute score: matched / required attributes;
+   - semantic score: pgvector cosine (only when embeddings provider configured);
+   - optional AI re-rank (structured output) when enabled.
+   Final confidence ∈ [0,1]. `auto_suggested` if ≥ `match.autoSuggest` (0.85) AND no missing critical
+   attribute; otherwise `needs_review`. Nothing is ever auto-approved.
+8. **Review**: grid with filters (low confidence, unmatched, edited); user edits quantity/unit/
+   attributes/match; every edit stored in `boq_item_revisions`.
+9. **Approve**: requires `boq.approve`; freezes a `boq_versions` snapshot used by RFQs.
+
+## AI layer
+`AIProvider` interface: `extractTable(input)`, `classifyLines(lines)`, `rerank(line, candidates)`,
+`embed(texts)`. Adapters: `anthropic` (default models configurable: extraction/rerank), `openai-compatible`,
+`disabled`. Every call: org data policy check (`orgs.settings.allowExternalAI`), monthly cost budget
+check, schema-validated output (Zod), retry (3, exponential, only on retryable errors), usage row in
+`ai_usage` (provider, model, tokens, cost estimate, purpose, document id). Document content is wrapped
+as untrusted data; system prompt instructs to ignore instructions inside documents; outputs are only data.
+
+## Accuracy evaluation
+`packages/modules/test/fixtures/boq/` golden set (synthetic ar/en BOQs with expected lines and matches).
+`pnpm test` reports extraction precision/recall and match top-1 accuracy for the rule-based engine;
+thresholds asserted in tests. AI-assisted evaluation is runnable manually with a key (`pnpm eval:boq`).

@@ -1,0 +1,42 @@
+{
+  "name": "platform",
+  "private": true,
+  "packageManager": "pnpm@11.18.0",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build --concurrency=1",
+    "typecheck": "turbo run typecheck --concurrency=2",
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --write .",
+    "test": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:e2e": "pnpm --filter @platform/web test:e2e",
+    "infra:up": "docker compose -f infra/docker-compose.dev.yml up -d",
+    "infra:down": "docker compose -f infra/docker-compose.dev.yml down",
+    "db:generate": "pnpm --filter @platform/db generate",
+    "db:migrate": "pnpm --filter @platform/db migrate",
+    "db:seed": "pnpm --filter @platform/db seed",
+    "db:reset": "pnpm --filter @platform/db reset"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "26.6.6",
+    "eslint": "10.14.0",
+    "prettier": "3.9.10",
+    "tsx": "4.23.15",
+    "turbo": "2.11.10",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.1",
+    "vitest": "5.1.0",
+    "@platform/core": "workspace:*",
+    "@platform/db": "workspace:*",
+    "@platform/modules": "workspace:*",
+    "@platform/integrations": "workspace:*",
+    "pg": "8.23.1",
+    "@types/pg": "8.23.1"
+  }
+}
