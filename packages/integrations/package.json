@@ -9,7 +9,8 @@
     "./ai": "./src/ai/index.ts",
     "./payments": "./src/payments/index.ts",
     "./ocr": "./src/ocr/index.ts",
-    "./zatca": "./src/zatca/index.ts"
+    "./zatca": "./src/zatca/index.ts",
+    "./pdf": "./src/pdf/index.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
@@ -21,9 +22,13 @@
     "nodemailer": "10.4.0",
     "zod": "4.6.7",
     "@anthropic-ai/sdk": "1.6.0",
-    "tesseract.js": "7.0.0"
+    "tesseract.js": "7.0.0",
+    "playwright-core": "1.65.0",
+    "@fontsource/ibm-plex-sans-arabic": "5.3.0",
+    "qrcode": "1.5.4"
   },
   "devDependencies": {
-    "@types/nodemailer": "8.0.2"
+    "@types/nodemailer": "8.0.2",
+    "@types/qrcode": "1.5.6"
   }
 }

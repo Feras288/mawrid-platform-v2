@@ -4,7 +4,9 @@ import { randomToken } from "@platform/core";
 import { withSystem } from "@platform/db";
 import { authUsers } from "@platform/db/schema";
 import { resolveContext, type Ctx } from "../src/context";
-import { createOrganization } from "../src/organizations";
+import { categories } from "@platform/db/schema";
+import { createOrganization, updateOrganization } from "../src/organizations";
+import { decideSupplier, reviewDocument, startReview, submitForVerification, updateMyProfile, uploadSupplierDocument } from "../src/suppliers";
 
 export async function createUser(opts: { email?: string; name?: string; verified?: boolean; platformAdmin?: boolean; twoFactor?: boolean } = {}) {
   const email = opts.email ?? `u-${randomToken(6).toLowerCase()}@test.local`;
@@ -60,3 +62,33 @@ export async function getUser(id: string) {
   const [u] = await withSystem((tx) => tx.select().from(authUsers).where(eq(authUsers.id, id)));
   return u!;
 }
+
+export const PDF = Buffer.from("%PDF-1.7\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n", "latin1");
+
+export async function categoryBySlug(slug: string) {
+  const [c] = await withSystem((tx) => tx.select().from(categories).where(eq(categories.slug, slug)).limit(1));
+  return c!;
+}
+
+export async function adminCtx() {
+  const admin = await createUser({ platformAdmin: true, twoFactor: true });
+  return ctxFor(admin.id);
+}
+
+/** Create a supplier and drive it to approved through the real lifecycle. */
+export async function approvedSupplier() {
+  const s = await setupOrg("supplier");
+  const pipes = await categoryBySlug("pipes");
+  await updateOrganization(s.ctx, { crNumber: "1010123456", vatNumber: "300000000000003", city: "Riyadh" });
+  await updateMyProfile(s.ctx, { descriptionAr: "مورد مواد سباكة", coverageRegions: ["RD"], categoryIds: [pipes.id], deliversNationwide: true });
+  const cr = await uploadSupplierDocument(s.ctx, { kind: "commercial_registration", documentNumber: "1010123456" }, { buffer: PDF, fileName: "cr.pdf" });
+  const vat = await uploadSupplierDocument(s.ctx, { kind: "vat_certificate" }, { buffer: PDF, fileName: "vat.pdf" });
+  await submitForVerification(s.ctx);
+  const admin = await adminCtx();
+  await startReview(admin, s.org.id);
+  await reviewDocument(admin, cr.id, { status: "verified" });
+  await reviewDocument(admin, vat.id, { status: "verified" });
+  await decideSupplier(admin, s.org.id, { decision: "approved" });
+  return { ...s, ctx: await ctxFor(s.user.id, s.org.id), admin };
+}
+

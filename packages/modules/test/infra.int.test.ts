@@ -63,8 +63,9 @@ describe("outbox", () => {
     const collect = async (e: { id: string; aggregateId: string }) => {
       if (e.aggregateId === id1) seen.push(e.id);
     };
-    await dispatchOutbox(collect);
-    await dispatchOutbox(collect);
+    // other tests leave pending events: use a large batch so this test's event is claimed
+    await dispatchOutbox(collect, { batch: 100_000 });
+    await dispatchOutbox(collect, { batch: 100_000 });
     expect(seen).toHaveLength(1);
   });
 
@@ -75,9 +76,12 @@ describe("outbox", () => {
       await emit({ topic: "test.dedupe", aggregateType: "t", aggregateId: key, payload: {}, dedupeKey: key }, tx);
     });
     expect(await withSystem((tx) => tx.select().from(outboxEvents).where(eq(outboxEvents.dedupeKey, key)))).toHaveLength(1);
-    await dispatchOutbox(async (e) => {
-      if (e.dedupeKey === key) throw new Error("handler down");
-    });
+    await dispatchOutbox(
+      async (e) => {
+        if (e.dedupeKey === key) throw new Error("handler down");
+      },
+      { batch: 100_000 },
+    );
     const [after] = await withSystem((tx) => tx.select().from(outboxEvents).where(eq(outboxEvents.dedupeKey, key)));
     expect(after!.status).toBe("pending");
     expect(after!.attempts).toBe(1);

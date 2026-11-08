@@ -7,7 +7,7 @@ import { processProductImport, startProductImport } from "../src/imports";
 import { updateOrganization } from "../src/organizations";
 import { createProduct, getPublicProduct, reserveStock, resolvePrices, setProductPrices, setPublished, setStock, settleReservation, upsertPriceList, availableQty } from "../src/supplier-products";
 import { decideSupplier, getMyProfile, reviewDocument, startReview, submitForVerification, updateMyProfile, uploadSupplierDocument, upsertWarehouse } from "../src/suppliers";
-import { createUser, ctxFor, rawAsApp, setupOrg } from "./helpers";
+import { approvedSupplier, createUser, ctxFor, rawAsApp, setupOrg } from "./helpers";
 
 const PDF = Buffer.from("%PDF-1.7\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n", "latin1");
 
@@ -19,23 +19,6 @@ async function cat(slug: string) {
 async function adminCtx() {
   const admin = await createUser({ platformAdmin: true, twoFactor: true });
   return ctxFor(admin.id);
-}
-
-/** Create a supplier and drive it to approved through the real lifecycle. */
-export async function approvedSupplier() {
-  const s = await setupOrg("supplier");
-  const pipes = await cat("pipes");
-  await updateOrganization(s.ctx, { crNumber: "1010123456", vatNumber: "300000000000003", city: "Riyadh" });
-  await updateMyProfile(s.ctx, { descriptionAr: "مورد مواد سباكة", coverageRegions: ["RD"], categoryIds: [pipes.id], deliversNationwide: true });
-  const cr = await uploadSupplierDocument(s.ctx, { kind: "commercial_registration", documentNumber: "1010123456" }, { buffer: PDF, fileName: "cr.pdf" });
-  const vat = await uploadSupplierDocument(s.ctx, { kind: "vat_certificate" }, { buffer: PDF, fileName: "vat.pdf" });
-  await submitForVerification(s.ctx);
-  const admin = await adminCtx();
-  await startReview(admin, s.org.id);
-  await reviewDocument(admin, cr.id, { status: "verified" });
-  await reviewDocument(admin, vat.id, { status: "verified" });
-  await decideSupplier(admin, s.org.id, { decision: "approved" });
-  return { ...s, ctx: await ctxFor(s.user.id, s.org.id), admin };
 }
 
 describe("supplier verification lifecycle", () => {

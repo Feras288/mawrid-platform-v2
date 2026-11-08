@@ -29,6 +29,20 @@
       "when": 1794156524529,
       "tag": "0003_projects_boq",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794157884985,
+      "tag": "0004_rfq_quotations_approvals",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794158365761,
+      "tag": "0005_purchase_orders",
+      "breakpoints": true
     }
   ]
 }

@@ -110,14 +110,15 @@ function scrub(params: Record<string, unknown>): Record<string, unknown> {
 /** Send a queued delivery (worker). Safe to call repeatedly; already-sent deliveries are skipped. */
 export async function sendDelivery(deliveryId: string, opts: { maxAttempts?: number } = {}): Promise<"sent" | "skipped_no_config" | "failed" | "noop"> {
   const maxAttempts = opts.maxAttempts ?? 5;
-  return withSystem(async (tx) => {
+  let retryError: unknown = null;
+  const result = await withSystem(async (tx) => {
     const [d] = await tx.select().from(notificationDeliveries).where(eq(notificationDeliveries.id, deliveryId)).limit(1).for("update");
     if (!d) throw notFound("Delivery");
-    if (d.status === "sent" || d.status === "skipped_no_config") return "noop";
+    if (d.status === "sent" || d.status === "skipped_no_config") return "noop" as const;
     const transport = getEmailTransport();
     if (!transport.isConfigured()) {
       await tx.update(notificationDeliveries).set({ status: "skipped_no_config", lastError: "SMTP not configured" }).where(eq(notificationDeliveries.id, d.id));
-      return "skipped_no_config";
+      return "skipped_no_config" as const;
     }
     const def = await templateFor(d.template as TemplateKey, d.locale === "en" ? "en" : "ar");
     const msg = renderEmail(def, d.locale === "en" ? "en" : "ar", d.params as Params);
@@ -127,17 +128,21 @@ export async function sendDelivery(deliveryId: string, opts: { maxAttempts?: num
         .update(notificationDeliveries)
         .set({ status: "sent", attempts: d.attempts + 1, providerMessageId: res.messageId, sentAt: new Date(), lastError: null, params: scrub(d.params) })
         .where(eq(notificationDeliveries.id, d.id));
-      return "sent";
+      return "sent" as const;
     } catch (e) {
       const attempts = d.attempts + 1;
+      // persist the failure (commit), then let the queue retry with backoff
       await tx
         .update(notificationDeliveries)
         .set({ status: attempts >= maxAttempts ? "failed" : "pending", attempts, lastError: String((e as Error).message).slice(0, 500) })
         .where(eq(notificationDeliveries.id, d.id));
-      if (attempts >= maxAttempts) return "failed";
-      throw e; // let the queue retry with backoff
+      if (attempts >= maxAttempts) return "failed" as const;
+      retryError = e;
+      return "failed" as const;
     }
   });
+  if (retryError) throw retryError;
+  return result;
 }
 
 export interface InAppRequest {

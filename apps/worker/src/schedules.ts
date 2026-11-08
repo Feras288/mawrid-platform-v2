@@ -6,5 +6,7 @@ export async function scheduleRecurring(queues: Map<QueueName, Queue>): Promise<
   const tz = "Asia/Riyadh";
   const def = queues.get("default")!;
   await def.upsertJobScheduler("cleanup-idempotency", { pattern: "15 3 * * *", tz }, { name: "cleanup", data: {} });
+  await queues.get("rfq")!.upsertJobScheduler("close-due-rfqs", { every: 5 * 60_000 }, { name: "close_due", data: {} });
+  await def.upsertJobScheduler("flag-po-delays", { pattern: "0 * * * *", tz }, { name: "po.flag_delays", data: {} });
   await def.upsertJobScheduler("expire-supplier-documents", { pattern: "0 2 * * *", tz }, { name: "suppliers.expire_documents", data: {} });
 }

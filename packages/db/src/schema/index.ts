@@ -4,3 +4,5 @@ export * from "./platform";
 export * from "./catalog";
 export * from "./suppliers";
 export * from "./projects";
+export * from "./rfq";
+export * from "./po";
