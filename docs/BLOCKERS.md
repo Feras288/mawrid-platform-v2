@@ -19,8 +19,10 @@
 |---|---|---|
 | SMTP production | Host/user/pass/from | Mailpit (local) |
 | AI provider | API key, data policy approval | Fake provider in tests |
-| Payment provider | Merchant account, keys, webhook secret | Test provider + signed webhook tests |
-| ZATCA Fatoora | CSID onboarding, certificates | QR TLV + invoice model only |
+| Payment provider (Moyasar live) | Merchant account, secret key, webhook secret (`MOYASAR_*`) | Test provider end-to-end; Moyasar adapter contract-tested with mocked HTTP (not yet exercised against the Moyasar sandbox) |
+| Bank transfer collection | Platform/supplier bank account details (`payments.bank_transfer` setting) and reconciliation owner | Provider + manual admin confirmation implemented & tested |
+| Supplier payouts / settlements | DEC-01/02/03 decisions, possibly SAMA licensing | Ledger balances only; payouts Blocked by decision (flag locked in production) |
+| ZATCA Fatoora | CSID onboarding, certificates | Phase-1 QR TLV, invoices & credit notes per supplier; no UBL XML/stamping |
 | Production S3 | Bucket + credentials | SeaweedFS (local) |
 | Error tracking | Sentry/GlitchTip DSN | Disabled when unset |
 | Shipping carriers | Contracts/APIs | Manual tracking numbers |

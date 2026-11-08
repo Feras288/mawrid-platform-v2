@@ -2,7 +2,7 @@
 
 Last updated: 2026-11-08
 
-## Current phase: 6 — Store & payments (starting)
+## Current phase: 7 — Analytics & Price Index (starting)
 
 | Phase | Status |
 |---|---|
@@ -12,7 +12,7 @@ Last updated: 2026-11-08
 | 3 Projects & BOQ | Done |
 | 4 RFQ & Quotations | Done |
 | 5 Approvals & PO | Done |
-| 6 Store | In progress |
+| 6 Store | Done |
 | 7 Analytics & Price Index | Pending |
 | 8 Admin & Integrations | Pending |
 | 9 Integration hardening | Pending |
@@ -58,16 +58,26 @@ steps, SoD, subject-hash invalidation). PO creation split per supplier (idempote
 completion, public verification page. UI for all buyer/supplier screens.
 Known gaps: E2E runs the English UI only for paths 5–12 (Arabic/mobile in Phase 9).
 
-## Phase 6 tasks
-- [ ] Schema: addresses, carts/cart_items, wishlists, shipping zones/rates, orders/order_groups/order_lines/order_charges,
-      payment_intents/attempts/webhook_events, refunds, returns, ledger_entries (no payouts) + RLS
-- [ ] Store pages: home, category, search/filter, product page with supplier offers, wishlist
-- [ ] Multi-vendor cart with revalidation (price/stock/MOQ), shipping per supplier group, VAT
-- [ ] Checkout (idempotent), stock reservation, payment provider abstraction: test provider (non-prod only),
-      Moyasar adapter (sandbox; live = Integration Pending), bank transfer; signed webhooks
-- [ ] Order lifecycle per supplier group; supplier order handling; cancellations, returns, refunds
-- [ ] Settlement ledger entries (commission/supplier payable separated); payouts flag locked
-- [ ] Account pages: orders, wishlist, addresses; tests (unit charges, integration webhooks/idempotency, E2E path 13)
+## Phase 6 — done
+Store catalog (search, category tree, brand/price/stock filters, sorting, product page with specs, tier
+prices, viewer-specific prices, other suppliers' offers), wishlist, addresses (personal or buyer org),
+multi-vendor cart with server-side revalidation, supplier delivery zones/rates + platform defaults,
+idempotent checkout (orders → per-supplier groups → lines → typed charges, stock reservations),
+payments (test provider non-prod with hosted-page simulator, Moyasar hosted-invoice adapter, bank
+transfer with manual admin confirmation), signed & deduplicated webhooks with provider re-fetch,
+expiry job, late-payment auto-refund, customer cancellations, supplier fulfilment (prepare/ship/deliver,
+cancel with refund), returns with refunds, reconciliation ledger, per-supplier ZATCA phase-1 invoices
+and credit notes, supplier balances (payouts locked off). Account: orders, wishlist, addresses.
+Supplier: store orders, returns, delivery zones. Seed: platform default delivery zone (dev only).
+Known gaps → Phase 8: admin finance UI (bank-transfer confirmation, refunds needing action, ledger
+summary, webhook log) — services exist and are tested; store policy texts are drafts.
+
+## Phase 7 tasks
+- [ ] Price observations (6 types: catalog list, store sale, RFQ quote, awarded, PO, index) captured from events, unit-normalized, ex-VAT
+- [ ] Outlier detection (IQR/MAD), comparability rules, k-anonymity (≥5 obs, ≥3 orgs), 90-day window (configurable)
+- [ ] Price index snapshots (job), charts, methodology page, alerts (subscriptions + notifications)
+- [ ] Buyer KPIs (spend, savings vs. median quote, cycle times, supplier performance), supplier KPIs, store KPIs — test data excluded
+- [ ] Tests: k-anonymity thresholds, outliers, test-data exclusion, KPI math; E2E smoke
 
 ## Log
 - 2026-11-08: Plan approved; repository initialized; documentation set created.
@@ -76,3 +86,4 @@ Known gaps: E2E runs the English UI only for paths 5–12 (Arabic/mobile in Phas
 - 2026-11-08: Phase 3 complete — tests: unit 52, integration 39, E2E 8 (all passing).
 
 - 2026-11-09: Phases 4–5 complete (RFQ, quotations, comparison/award, approvals, POs, fulfilment, verification page) — tests: unit 52, integration 42, E2E 9 (all passing).
+- 2026-11-09: Phase 6 complete (store, payments, fulfilment, returns, ledger, invoices) — tests: unit 65, integration 45, E2E 12 (all passing).

@@ -47,6 +47,7 @@ export function supplierNav(ctx: Ctx): NavItem[] {
     { href: "/supplier/purchase-orders", labelKey: "nav.purchaseOrders", icon: "po", show: has(ctx, "supplier.po.view") },
     { href: "/supplier/orders", labelKey: "nav.storeOrders", icon: "orders", show: has(ctx, "supplier.orders.view") },
     { href: "/supplier/returns", labelKey: "nav.returns", icon: "returns", show: has(ctx, "supplier.orders.view") },
+    { href: "/supplier/shipping", labelKey: "nav.shipping", icon: "shipping", show: has(ctx, "supplier.orders.fulfil") },
     { href: "/supplier/analytics", labelKey: "nav.analytics", icon: "analytics", show: has(ctx, "supplier.analytics.view") },
     { href: "/supplier/members", labelKey: "nav.members", icon: "members", show: has(ctx, "members.view") },
     { href: "/supplier/roles", labelKey: "nav.roles", icon: "roles", show: has(ctx, "roles.manage") },

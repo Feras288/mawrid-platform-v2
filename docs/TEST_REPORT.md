@@ -22,7 +22,14 @@ Results are recorded from actual runs only (date, command, outcome). No result i
 | 2026-11-09 | Integration (Phases 4–5) | `pnpm test:integration` | 42/42 passed | + full B2B cycle (RFQ→quotes→comparison→award approval w/ SoD & sequential steps→PO split→partial shipments/receipts), email failure retry, award invalidation on change |
 | 2026-11-09 | E2E (Phases 4–5) | `playwright test` | 9/9 passed | + critical paths 5–12 in English UI (manual RFQ → seed supplier quotation → close → compare → per-line award → auto-approval → PO issue + AR/EN PDFs → acknowledge → partial + full shipment → receipt → close; verify page) |
 
+| 2026-11-09 | Unit (Phase 6) | `pnpm test` | 65/65 passed | + Moyasar contract (mocked HTTP), test-provider production refusal & HMAC, bank transfer, minor units, ZATCA TLV, allocation, order status |
+| 2026-11-09 | Integration (Phase 6) | `pnpm test:integration` | 45/45 passed | + store: multi-vendor checkout (idempotent), typed charges, webhook signature/dedupe/re-fetch/amount mismatch, ledger balanced, invoices + credit notes, supplier/customer isolation (raw SQL as app_user), cancellation & return refunds, failed payment, expiry, late payment auto-refund, checkout flag |
+| 2026-11-09 | E2E (Phase 6) | `playwright test e2e/store.spec.ts` | 3/3 passed (desktop + mobile) | critical path 13 in Arabic UI; store pages have no horizontal overflow on mobile |
+
 ## Defects found by tests and fixed
+- `allocate()` could give a rounding cent to a zero-weight part (e.g. commission when commission is 0) → cents now go only to positive weights (unit test).
+- Store search normalized `UPVC-110` to `upvc 110` before matching SKUs → SKUs now match the raw query (found by E2E).
+- Store server actions read `key[]` names although the form helper strips `[]` → shipping choices were dropped (found by E2E).
 - Empty `<select>` value failed optional enum validation (org creation) → blank→undefined preprocessing.
 - Post-action navigation used non-locale router → 404; switched to next-intl router.
 - Better Auth 1.7 2FA table required new columns → migration `0001_auth_two_factor_fields`.

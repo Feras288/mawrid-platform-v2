@@ -114,3 +114,22 @@ dropped from scope for now (Not Implemented) — no verified need; the interface
 ## ADR-021 — Projects visibility
 Org-wide by default; `visibility = members` restricts to project members/manager and holders of
 `project.manage_members`. Enforced in services (RLS stays org-level); inaccessible projects return 404.
+
+## ADR-022 — Store orders, payments and reconciliation ledger (2026-11-09)
+- One `order` per checkout, one `order_group` per supplier (seller of record, own status, own tax
+  invoice). Money is split into typed `order_charges` (goods, shipping, VAT on each, commission,
+  commission VAT, supplier payable). Customers never see commission/payable rows (RLS).
+- Checkout is idempotent per (user, key), revalidates price/stock/MOQ/shipping server-side and reserves
+  stock in the same transaction. Provider calls happen after commit. Unpaid orders expire (card 30 min,
+  bank transfer 72 h) and release stock.
+- Webhooks: verified per provider (HMAC for the test provider; Moyasar `secret_token` compared in
+  constant time), stored once per provider event id, then the payment is **re-fetched from the provider**;
+  amount and currency must match the intent exactly or the payment is flagged and never marked paid.
+  A payment confirmed after the order expired is refunded automatically.
+- Ledger (`ledger_entries`, append-only, system-only): payment journal Dr platform_clearing /
+  Cr supplier_payable, commission_revenue, vat_payable; refunds reverse pro rata (`allocate`, cents only
+  to non-zero weights). Payouts are not implemented: `settlements.payouts` is locked off (prod guard)
+  pending DEC-01/02/03.
+- Invoices: per group on payment, simplified (B2C) or standard (valid buyer VAT), credit notes on
+  refunds; ZATCA phase-1 QR TLV. Fatoora (phase 2) is Integration Pending (DEC-06).
+- Suppliers deliver via their own zones/rates; if a supplier has none, platform default zones apply.

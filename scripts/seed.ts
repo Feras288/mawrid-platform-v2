@@ -17,7 +17,7 @@ if (appEnv !== "development" && appEnv !== "test") {
 }
 
 const { hashPassword } = await import("better-auth/crypto");
-const { eq } = await import("drizzle-orm");
+const { eq, isNull } = await import("drizzle-orm");
 const { uuidv7 } = await import("@platform/core");
 const { closeDb, withSystem } = await import("@platform/db");
 const schema = await import("@platform/db/schema");
@@ -98,6 +98,19 @@ if (!supMembership.length) {
     await sp.setPublished(sctx, p.id, true);
   }
   console.log(`supplier org (approved, ${items.length} products): ${org.id}`);
+}
+
+// platform default delivery rates (used for suppliers without their own zones) — dev/test values
+const defaultZones = await withSystem((tx) => tx.select().from(schema.shippingZones).where(isNull(schema.shippingZones.supplierOrgId)));
+if (!defaultZones.length) {
+  await withSystem(async (tx) => {
+    const [z] = await tx.insert(schema.shippingZones).values({ supplierOrgId: null, name: "KSA default", nationwide: true }).returning();
+    await tx.insert(schema.shippingRates).values([
+      { zoneId: z!.id, supplierOrgId: null, method: "standard", fee: "25.00", freeOver: "500.00", etaMinDays: 2, etaMaxDays: 5 },
+      { zoneId: z!.id, supplierOrgId: null, method: "express", fee: "60.00", freeOver: null, etaMinDays: 1, etaMaxDays: 2 },
+    ]);
+  });
+  console.log("default shipping zone created");
 }
 
 await closeDb();

@@ -98,9 +98,11 @@ export async function searchProducts(ctx: Ctx, input: SearchInput) {
       conds.push(inArray(supplierProducts.categoryId, categoryIds));
     }
     const q = input.q ? normalizeText(input.q).slice(0, 100) : "";
-    if (q) {
+    const raw = (input.q ?? "").trim().slice(0, 100);
+    if (q || raw) {
       const like = `%${likeEscape(q)}%`;
-      conds.push(sql`(${supplierProducts.normalizedName} ilike ${like} or ${supplierProducts.sku} ilike ${like} or ${supplierProducts.normalizedName} % ${q} or lower(coalesce(${supplierProducts.brandName}, '')) = ${q})`);
+      const rawLike = `%${likeEscape(raw)}%`;
+      conds.push(sql`(${supplierProducts.normalizedName} ilike ${like} or ${supplierProducts.sku} ilike ${rawLike} or ${supplierProducts.normalizedName} % ${q} or lower(coalesce(${supplierProducts.brandName}, '')) = lower(${raw}))`);
     }
     if (input.brand) conds.push(sql`lower(${supplierProducts.brandName}) = lower(${input.brand})`);
     if (input.supplierOrgId) conds.push(eq(supplierProducts.orgId, input.supplierOrgId));
