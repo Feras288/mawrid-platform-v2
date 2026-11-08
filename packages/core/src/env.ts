@@ -38,14 +38,10 @@ export const envSchema = z.object({
   SMTP_FROM: optionalStr,
   SMTP_SECURE: bool,
   // AI
-  AI_PROVIDER: z.enum(["none", "anthropic", "openai_compatible"]).default("none"),
+  AI_PROVIDER: z.enum(["none", "anthropic"]).default("none"),
   ANTHROPIC_API_KEY: optionalStr,
-  AI_MODEL_EXTRACTION: z.string().default("claude-sonnet-5-5"),
+  AI_MODEL_EXTRACTION: z.string().default("claude-opus-5-5"),
   AI_MODEL_FAST: z.string().default("claude-haiku-5-5"),
-  OPENAI_COMPAT_BASE_URL: optionalStr,
-  OPENAI_COMPAT_API_KEY: optionalStr,
-  OPENAI_COMPAT_MODEL: optionalStr,
-  OPENAI_COMPAT_EMBED_MODEL: optionalStr,
   // Payments
   PAYMENT_PROVIDER: z.enum(["test", "moyasar", "none"]).default("none"),
   MOYASAR_SECRET_KEY: optionalStr,

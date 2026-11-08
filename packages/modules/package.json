@@ -17,9 +17,11 @@
     "file-type": "22.3.0",
     "zod": "4.6.7",
     "exceljs": "4.4.0",
-    "papaparse": "5.7.0"
+    "papaparse": "5.7.0",
+    "unpdf": "2.1.0"
   },
   "devDependencies": {
-    "@types/papaparse": "5.5.2"
+    "@types/papaparse": "5.5.2",
+    "pdf-lib": "1.17.1"
   }
 }

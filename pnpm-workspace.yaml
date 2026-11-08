@@ -9,5 +9,6 @@ allowBuilds:
   "@parcel/watcher": true
   "@swc/core": true
   msgpackr-extract: true
+  tesseract.js: false
 minimumReleaseAgeExclude:
   - nodemailer@10.4.0
