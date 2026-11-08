@@ -28,7 +28,8 @@ received → validating → stored → extracting → parsed → normalizing →
      equality (a critical attribute present on both sides and unequal ⇒ candidate rejected);
    - lexical score: pg_trgm similarity on normalized names + token overlap;
    - attribute score: matched / required attributes;
-   - semantic score: pgvector cosine (only when embeddings provider configured);
+   - semantic (embedding) similarity: **Not Implemented** — pgvector is installed but no embedding
+     provider is wired; lexical + attribute + unit signals are used instead;
    - optional AI re-rank (structured output) when enabled.
    Final confidence ∈ [0,1]. `auto_suggested` if ≥ `match.autoSuggest` (0.85) AND no missing critical
    attribute; otherwise `needs_review`. Nothing is ever auto-approved.
@@ -51,12 +52,13 @@ check, schema-validated output (Zod), retry (3, exponential, only on retryable e
 as untrusted data; system prompt instructs to ignore instructions inside documents; outputs are only data.
 
 ## Accuracy evaluation
-`packages/modules/test/fixtures/boq/` golden set (synthetic ar/en BOQs with expected lines and matches).
-`pnpm test` reports extraction precision/recall and match top-1 accuracy for the rule-based engine;
-thresholds asserted in tests. AI-assisted evaluation is runnable manually with a key (`pnpm eval:boq`).
+Golden set in `packages/modules/test/fixtures/boq-golden.ts` (synthetic bilingual BOQ with expected
+lines, quantities, units, attributes and categories). `pnpm test` asserts extraction recall, attribute
+and category accuracy for the rule engine. AI-assisted accuracy is not measured in CI (needs a key and
+paid calls) — **Known Limitation**; it can be evaluated manually by enabling AI for a test org.
 
 ## Implementation notes & limitations
-- Arabic unit words are normalized to Latin tokens before pattern matching (JS `` is ASCII-only).
+- Arabic unit words are normalized to Latin tokens before pattern matching (JS word boundary `` is ASCII-only).
 - Text PDFs: columns are rebuilt from text positions anchored on the header line. Arabic text in PDFs
   may come back in visual order from pdf.js — Arabic PDFs are better processed via AI (opt-in) or
   uploaded as Excel. **Known Limitation.**
