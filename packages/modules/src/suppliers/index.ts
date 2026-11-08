@@ -326,3 +326,17 @@ export async function getSupplierStatus(orgId: string): Promise<SupplierStatus> 
   const [p] = await withSystem((tx) => tx.select({ status: supplierProfiles.status }).from(supplierProfiles).where(eq(supplierProfiles.orgId, orgId)).limit(1));
   return (p?.status as SupplierStatus) ?? "new";
 }
+
+/** Public directory of approved suppliers accepting RFQs (for recipient selection). */
+export async function listApprovedSuppliers(q?: string) {
+  const { withPublic } = await import("@platform/db");
+  return withPublic((tx) =>
+    tx
+      .select({ orgId: organizations.id, nameAr: organizations.nameAr, nameEn: organizations.nameEn, city: organizations.city })
+      .from(supplierProfiles)
+      .innerJoin(organizations, eq(organizations.id, supplierProfiles.orgId))
+      .where(and(eq(supplierProfiles.status, "approved"), eq(supplierProfiles.acceptsRfqs, true), q ? sql`(${organizations.nameEn} ilike ${"%" + q + "%"} or ${organizations.nameAr} ilike ${"%" + q + "%"})` : undefined))
+      .orderBy(asc(organizations.nameEn))
+      .limit(300),
+  );
+}

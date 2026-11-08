@@ -59,3 +59,12 @@ fallback, manual BOQs. AI usage logging. Golden-set accuracy tests.
 - 2026-11-08: Phase 1 complete — tests: unit 27, integration 20, E2E 6 (all passing).
 - 2026-11-08: Phase 2 complete — tests: unit 37, integration 30, E2E 7 (all passing).
 - 2026-11-08: Phase 3 complete — tests: unit 52, integration 39, E2E 8 (all passing).
+
+### 2026-11-08 — Phase 4–5 UI (in progress)
+- Done (typecheck + lint clean, NOT yet browser/E2E verified): RFQ list/detail/compare pages, approvals inbox/detail,
+  approval policies, buyer & supplier PO list/detail, supplier RFQ inbox + quotation form, public `/verify/po/[code]`.
+  Client components: `components/procurement/{rfq-client,compare-client,approval-client,po-client,po-view,status}`,
+  `components/supplier/quote-form.tsx`. Approval `getRequest` now returns `subjectRef` for linking.
+- Next: E2E `apps/web/e2e/procurement.spec.ts` (buyer RFQ → seed supplier quote → close → award → PO → ack/ship → receipt → close;
+  seed supplier must open its org via /account/organizations "Open"; close-submissions uses window.confirm),
+  then update RTM/TEST_REPORT, commit, then Phase 6.

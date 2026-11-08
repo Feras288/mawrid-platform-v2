@@ -300,6 +300,7 @@ export async function getRequest(ctx: Ctx, requestId: string) {
       .where(eq(approvalDecisions.requestId, requestId))
       .orderBy(asc(approvalDecisions.createdAt));
     const canDecide = req.status === "pending" && req.requestedBy !== ctx.userId && steps.some((s) => s.status === "active" && ctx.permissions.has(s.requiredPermission as Permission) && (!s.requiredRoleKey || ctx.roleKeys.includes(s.requiredRoleKey)) && !decisions.some((d) => d.stepId === s.id && d.userId === ctx.userId));
-    return { request: req, steps, decisions, canDecide };
+    const link = await tx.execute(sql`select case when ${req.subjectType} = 'award' then (select rfq_id from awards where id = ${req.subjectId}) else ${req.subjectId} end as id`);
+    return { request: req, steps, decisions, canDecide, subjectRef: ((link.rows[0] as { id: string | null } | undefined)?.id ?? null) as string | null };
   });
 }
