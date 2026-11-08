@@ -37,6 +37,7 @@
     "@platform/modules": "workspace:*",
     "@platform/integrations": "workspace:*",
     "pg": "8.23.1",
-    "@types/pg": "8.23.1"
+    "@types/pg": "8.23.1",
+    "eslint-plugin-react-hooks": "7.1.1"
   }
 }

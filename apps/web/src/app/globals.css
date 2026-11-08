@@ -1,0 +1,88 @@
+@import "tailwindcss";
+
+/* Design tokens — contemporary Saudi professional palette: deep palm green, sand neutrals, desert gold. */
+@theme {
+  --color-primary-50: #eef7f4;
+  --color-primary-100: #d4ece4;
+  --color-primary-200: #a9d8c8;
+  --color-primary-500: #1f8a72;
+  --color-primary-600: #157060;
+  --color-primary-700: #0f5c4d;
+  --color-primary-800: #0b463b;
+  --color-primary-900: #07312a;
+  --color-accent-100: #f6ecd9;
+  --color-accent-500: #b8893b;
+  --color-accent-700: #8a6424;
+  --color-sand-50: #faf9f6;
+  --color-sand-100: #f4f3ee;
+  --color-sand-200: #e8e6de;
+  --color-sand-300: #d6d3c7;
+  --color-ink-400: #8a918d;
+  --color-ink-500: #6b746f;
+  --color-ink-600: #4d5652;
+  --color-ink-700: #333b37;
+  --color-ink-900: #1d2622;
+  --color-danger-50: #fdf0ef;
+  --color-danger-600: #c0392b;
+  --color-danger-700: #a12d22;
+  --color-warning-50: #fff8e6;
+  --color-warning-600: #b7791f;
+  --color-success-50: #ecf8f1;
+  --color-success-600: #1e8449;
+  --color-info-50: #eef4fb;
+  --color-info-600: #2c6aa0;
+  --font-sans: var(--font-arabic), var(--font-latin), ui-sans-serif, system-ui, sans-serif;
+  --font-latin-first: var(--font-latin), var(--font-arabic), ui-sans-serif, system-ui, sans-serif;
+  --radius-card: 0.875rem;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+  html[lang="en"] body {
+    font-family: var(--font-latin-first);
+  }
+  body {
+    @apply bg-sand-50 text-ink-900 antialiased;
+    font-family: var(--font-sans);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-primary-600);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  /* Numbers, codes and SKUs keep LTR ordering inside RTL text */
+  .ltr-nums,
+  bdi.num {
+    unicode-bidi: isolate;
+    direction: ltr;
+    font-variant-numeric: tabular-nums;
+  }
+  table {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.skip-link {
+  position: absolute;
+  inset-inline-start: 0.5rem;
+  top: -3rem;
+  z-index: 100;
+  @apply rounded-md bg-primary-700 px-3 py-2 text-white;
+}
+.skip-link:focus {
+  top: 0.5rem;
+}

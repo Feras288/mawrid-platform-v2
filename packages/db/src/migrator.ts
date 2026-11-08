@@ -30,7 +30,8 @@ export interface MigrateOptions {
  * Must run as the schema owner. Idempotent.
  */
 export async function runMigrations(opts: MigrateOptions): Promise<void> {
-  const log = opts.log ?? ((m: string) => console.log(m));
+  const log = opts.log ?? ((m: string) => process.stdout.write(`${m}
+`));
   const client = new pg.Client({ connectionString: opts.ownerUrl });
   await client.connect();
   try {
@@ -63,7 +64,7 @@ export async function runMigrations(opts: MigrateOptions): Promise<void> {
         await client.query("COMMIT");
       } catch (e) {
         await client.query("ROLLBACK");
-        throw new Error(`Failed applying ${f.name}: ${(e as Error).message}`);
+        throw new Error(`Failed applying ${f.name}: ${(e as Error).message}`, { cause: e });
       }
     }
     await client.query(`REVOKE ALL ON _repeatable_sql FROM app_user`);

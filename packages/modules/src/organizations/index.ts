@@ -56,7 +56,10 @@ const vat = z
 export const orgProfileSchema = z.object({
   nameAr: z.string().trim().min(2).max(200),
   nameEn: z.string().trim().min(2).max(200),
-  activityType: z.enum(["contractor", "developer", "operations_maintenance", "consultant", "factory", "trading", "government", "other"]).optional(),
+  activityType: z.preprocess(
+    (v) => (v === "" || v === null ? undefined : v),
+    z.enum(["contractor", "developer", "operations_maintenance", "consultant", "factory", "trading", "government", "other"]).optional(),
+  ),
   email: z.string().trim().email().max(200).optional().or(z.literal("").transform(() => undefined)),
   phone: z
     .string()

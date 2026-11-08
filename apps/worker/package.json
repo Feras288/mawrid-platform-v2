@@ -1,0 +1,22 @@
+{
+  "name": "@platform/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=../../.env src/main.ts",
+    "start": "node dist/main.js",
+    "build": "esbuild src/main.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/main.js --packages=external",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@platform/core": "workspace:*",
+    "@platform/db": "workspace:*",
+    "@platform/integrations": "workspace:*",
+    "@platform/modules": "workspace:*",
+    "bullmq": "5.81.5",
+    "drizzle-orm": "0.45.4",
+    "ioredis": "5.11.1"
+  },
+  "devDependencies": { "esbuild": "0.28.2" }
+}

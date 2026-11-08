@@ -60,6 +60,7 @@ export const UPLOAD_RULES: Record<FileOwnerType, Rule> = {
 const ext = (name: string) => name.toLowerCase().split(".").pop() ?? "";
 
 function sanitizeName(name: string): string {
+  // eslint-disable-next-line no-control-regex -- strip control characters from user-supplied file names
   const base = name.replace(/[\\/]/g, "_").replace(/[\u0000-\u001f\u007f<>:"|?*]/g, "").trim();
   return (base || "file").slice(0, 200);
 }

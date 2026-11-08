@@ -47,7 +47,7 @@ export function normalizeText(s: string): string {
     .replace(/[×xX]\s*(?=\d)/g, "x")
     .replace(/[“”"'`´]/g, "")
     .replace(/[‌-‏‪-‮]/g, "") // bidi marks
-    .replace(/[^\p{L}\p{N}.\/x²³]+/gu, " ")
+    .replace(/[^\p{L}\p{N}./x²³]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -64,7 +64,7 @@ export function parseLocaleNumber(raw: unknown): string | null {
   if (typeof raw === "number") return Number.isFinite(raw) ? String(raw) : null;
   let s = toAsciiDigits(String(raw)).trim().replace(/\s+/g, "");
   if (!s) return null;
-  s = s.replace(/[^0-9.,\-]/g, "");
+  s = s.replace(/[^0-9.,-]/g, "");
   if (!/\d/.test(s)) return null;
   const lastComma = s.lastIndexOf(",");
   const lastDot = s.lastIndexOf(".");
