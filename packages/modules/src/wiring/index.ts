@@ -11,6 +11,8 @@ import { processProductImport } from "../imports";
 import { registerProcessor } from "../jobs";
 import { syncReferenceData } from "../reference";
 import { expireDocuments } from "../suppliers";
+import { completeDeliveredGroups } from "../commerce";
+import { expireUnpaidOrders } from "../payments";
 
 on("import.requested", async (e, enqueue) => {
   const p = e.payload as { batchId: string; userId: string; orgId: string };
@@ -44,5 +46,8 @@ registerProcessor("default", "po.flag_delays", async () => flagDelays());
 registerProcessor("default", "import.products", async (d) => processProductImport(String(d.batchId), String(d.userId), String(d.orgId)));
 registerProcessor("default", "suppliers.expire_documents", async () => expireDocuments());
 registerProcessor("default", "reference.sync", async () => syncReferenceData());
+
+registerProcessor("default", "store.expire_unpaid", async () => expireUnpaidOrders());
+registerProcessor("default", "store.complete_delivered", async () => completeDeliveredGroups());
 
 export const WIRED = true;

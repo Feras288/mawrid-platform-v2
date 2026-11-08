@@ -33,6 +33,8 @@ export const BUYER_PERMISSIONS = [
   "po.create",
   "po.cancel",
   "po.receive",
+  "store.purchase",
+  "store.orders.view",
   "analytics.view",
   "price_index.view",
   "files.upload",
@@ -102,7 +104,7 @@ export interface RoleTemplate {
 const B = (p: BuyerPermission[]) => p;
 const S = (p: SupplierPermission[]) => p;
 
-const BUYER_READ = B(["org.view", "members.view", "project.view", "boq.view", "rfq.view", "quotation.view", "po.view"]);
+const BUYER_READ = B(["org.view", "members.view", "project.view", "boq.view", "rfq.view", "quotation.view", "po.view", "store.orders.view"]);
 
 export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
   { key: "owner", orgType: "buyer", nameAr: "مالك المؤسسة", nameEn: "Organization owner", permissions: BUYER_PERMISSIONS },
@@ -131,6 +133,8 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
       "award.create",
       "po.create",
       "po.receive",
+      "store.purchase",
+      "store.orders.view",
       "files.upload",
       "price_index.view",
     ]),
@@ -174,6 +178,7 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
       "po.create",
       "po.cancel",
       "po.receive",
+      "store.purchase",
       "analytics.view",
       "price_index.view",
       "files.upload",

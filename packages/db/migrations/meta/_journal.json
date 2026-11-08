@@ -43,6 +43,13 @@
       "when": 1794158365761,
       "tag": "0005_purchase_orders",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794175627167,
+      "tag": "0006_store_commerce",
+      "breakpoints": true
     }
   ]
 }

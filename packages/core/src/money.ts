@@ -127,11 +127,14 @@ export function allocate(amount: DecInput, weights: DecInput[]): Decimal[] {
   const parts = ws.map((w) => money(total.times(w).div(wSum)).toDecimalPlaces(2, D.ROUND_DOWN));
   let remainder = total.minus(sum(parts));
   const cent = new D("0.01");
-  let i = 0;
-  while (remainder.greaterThan(0)) {
-    parts[i % parts.length] = parts[i % parts.length]!.plus(cent);
+  // hand leftover cents only to parts with a positive weight, largest weights first
+  const order = ws.map((w, i) => ({ w, i })).filter((x) => x.w.greaterThan(0)).sort((a, b) => b.w.cmp(a.w) || a.i - b.i);
+  let k = 0;
+  while (remainder.greaterThan(0) && order.length) {
+    const idx = order[k % order.length]!.i;
+    parts[idx] = parts[idx]!.plus(cent);
     remainder = remainder.minus(cent);
-    i++;
+    k++;
   }
   return parts;
 }
