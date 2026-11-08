@@ -103,3 +103,14 @@ Supplier = seller of record; platform = intermediary. Commission/subscriptions c
 Payments via provider abstraction (Moyasar adapter, bank transfer, test provider in non-prod).
 Settlements module computes payables but executes nothing real (feature flag off + prod guard).
 Price index publication: ≥5 observations from ≥3 independent orgs, 90-day window (configurable).
+
+## ADR-020 — AI provider: Anthropic SDK with structured outputs (2026-11-08)
+Claude via the official TypeScript SDK; JSON-schema structured outputs (forced tool choice is rejected
+by current models); refusal fallback enabled (`server-side-fallback-2026-07-01`, `fallbacks: "default"`).
+Documents are sent only when the org opted in (`allowExternalAI`), the `boq.ai_extraction` flag is on,
+a key is configured, and the monthly budget is not exhausted. The planned OpenAI-compatible adapter is
+dropped from scope for now (Not Implemented) — no verified need; the interface supports adding it.
+
+## ADR-021 — Projects visibility
+Org-wide by default; `visibility = members` restricts to project members/manager and holders of
+`project.manage_members`. Enforced in services (RLS stays org-level); inaccessible projects return 404.

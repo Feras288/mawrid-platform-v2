@@ -36,10 +36,16 @@ received → validating → stored → extracting → parsed → normalizing →
    attributes/match; every edit stored in `boq_item_revisions`.
 9. **Approve**: requires `boq.approve`; freezes a `boq_versions` snapshot used by RFQs.
 
-## AI layer
-`AIProvider` interface: `extractTable(input)`, `classifyLines(lines)`, `rerank(line, candidates)`,
-`embed(texts)`. Adapters: `anthropic` (default models configurable: extraction/rerank), `openai-compatible`,
-`disabled`. Every call: org data policy check (`orgs.settings.allowExternalAI`), monthly cost budget
+## AI layer (as implemented)
+`AiProvider` interface (`packages/integrations/src/ai`): `extractBoqLines(input)` for text / PDF
+(base64 document block) / image, and `rerank(line, candidates)`. Adapters: `anthropic` (official
+`@anthropic-ai/sdk`, structured outputs via `output_config.format` json_schema, streaming
+`finalMessage()`, server-side refusal fallback `fallbacks: "default"` beta), `disabled`, and `fake`
+(tests only, refused in production). Default models: extraction `claude-opus-5-5` (effort medium),
+rerank `claude-haiku-5-5` (effort low) — override with `AI_MODEL_EXTRACTION` / `AI_MODEL_FAST`.
+Cost estimate from token usage with a per-model price table (override `AI_PRICE_<MODEL>="in,out"`).
+An OpenAI-compatible adapter is **Not Implemented** (abstraction allows adding one).
+Rule-match signals are not overridden by AI: AI re-ranking only reorders rule-viable candidates. Every call: org data policy check (`orgs.settings.allowExternalAI`), monthly cost budget
 check, schema-validated output (Zod), retry (3, exponential, only on retryable errors), usage row in
 `ai_usage` (provider, model, tokens, cost estimate, purpose, document id). Document content is wrapped
 as untrusted data; system prompt instructs to ignore instructions inside documents; outputs are only data.
@@ -48,3 +54,16 @@ as untrusted data; system prompt instructs to ignore instructions inside documen
 `packages/modules/test/fixtures/boq/` golden set (synthetic ar/en BOQs with expected lines and matches).
 `pnpm test` reports extraction precision/recall and match top-1 accuracy for the rule-based engine;
 thresholds asserted in tests. AI-assisted evaluation is runnable manually with a key (`pnpm eval:boq`).
+
+## Implementation notes & limitations
+- Arabic unit words are normalized to Latin tokens before pattern matching (JS `` is ASCII-only).
+- Text PDFs: columns are rebuilt from text positions anchored on the header line. Arabic text in PDFs
+  may come back in visual order from pdf.js — Arabic PDFs are better processed via AI (opt-in) or
+  uploaded as Excel. **Known Limitation.**
+- Scanned PDFs / images: AI vision when the org opted in; otherwise local Tesseract OCR only if
+  `OCR_LANG_PATH` provides `ara`/`eng` traineddata (never downloaded at runtime); otherwise the
+  document is routed to manual entry. **Integration Pending** (language data provisioning).
+- Known provider failures (invalid output, refusal, budget) fail the document without queue retries,
+  so paid calls are not repeated; network/5xx errors are retried by the SDK.
+- Golden set (`packages/modules/test/fixtures/boq-golden.ts`, 15 bilingual lines): extraction recall
+  1.0 on AR and EN headers; attribute accuracy ≥ 0.95; category accuracy ≥ 0.9 — asserted in CI.
