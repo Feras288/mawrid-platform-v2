@@ -7,7 +7,8 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 
 const here = dirname(fileURLToPath(import.meta.url));
-export const DB_ROOT = join(here, "..");
+/** Location of migrations/ and sql/ (overridable for bundled deployments, e.g. DB_ASSETS_DIR=/app/db). */
+export const DB_ROOT = process.env.DB_ASSETS_DIR ?? join(here, "..");
 
 function sqlFiles(dir: string): { name: string; sql: string }[] {
   const full = join(DB_ROOT, "sql", dir);

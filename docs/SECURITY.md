@@ -47,3 +47,25 @@ for members holding approval permissions.
 ## Files
 `files` rows carry `org_id`, `owner_type/owner_id`, `classification` (public | org_private | confidential).
 Download goes through `/api/v1/files/:id/url` → authz → presigned URL (300 s).
+
+## Phase 9 security review (2026-11-09)
+| Area | Control | Evidence |
+|---|---|---|
+| Tenant isolation | RLS on every tenant table; runtime role `app_user` without BYPASSRLS; GUCs per transaction | rls.int, boq.int, suppliers.int, procurement.int, store.int, analytics.int (raw SQL as app_user) |
+| Buyer ↔ supplier sharing | Bridge functions (`app_rfq_visible_to_supplier`, `app_po_issued_to_me`, `app_group_visible_to_supplier`); suppliers never see competitors, unpaid groups, parent orders or commission rows of others | procurement.int, store.int |
+| Authorization | Every service calls `authorize`/`authorizeAdmin`; server actions only call services | admin.int, organizations.int, e2e |
+| Admin | MFA required outside development; no implicit tenant access; break-glass read-only, time-boxed, audited, owners notified | admin.int, e2e admin.spec |
+| Secrets | AES-256-GCM in `system_settings`; never returned to UI; logs redacted; integration tests show ciphertext ≠ plaintext | admin.int, e2e admin.spec |
+| Payments | Webhook signature/secret check, dedupe by provider event id, provider re-fetch, exact amount/currency match, idempotent checkout & refunds, test provider refused in production | store.int, payments.unit |
+| Files | Magic-byte validation, size limits, private bucket, presigned URLs ≤ 300 s, RLS-gated metadata, confidential downloads audited | foundation.unit, rls.int, admin.int (export privacy) |
+| Accounts | Rate-limited auth endpoints, email verification, TOTP 2FA, suspended/deleted accounts blocked at sign-in and in context resolution | e2e foundation, admin.int |
+| Headers | CSP (`frame-ancestors 'none'`, `object-src 'none'`, `form-action 'self'`), HSTS (prod), nosniff, Referrer-Policy, Permissions-Policy, no `x-powered-by` | next.config.ts |
+| Privacy | Consents, export (owner-only file), deletion with anonymization and legal retention | admin.int, e2e admin.spec |
+
+Known limitations:
+- CSP allows `'unsafe-inline'` scripts/styles (Next.js bootstrap without nonces). Mitigated by React
+  escaping and no `dangerouslySetInnerHTML` on user content; a nonce-based CSP is a follow-up.
+- `pnpm audit --prod`: 2 moderate advisories — `esbuild` (dev-server CORS issue; reachable only through
+  `drizzle-kit` tooling, not at runtime) and `uuid < 11.1.1` inside `exceljs` (bounds check in v3/v5/v6 with
+  a caller buffer; exceljs does not use that path). Tracked for upgrade when upstream releases allow.
+- Antivirus scanning of uploads is a disabled hook (Integration Pending: ClamAV service).
