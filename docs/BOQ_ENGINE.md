@@ -58,7 +58,7 @@ and category accuracy for the rule engine. AI-assisted accuracy is not measured 
 paid calls) — **Known Limitation**; it can be evaluated manually by enabling AI for a test org.
 
 ## Implementation notes & limitations
-- Arabic unit words are normalized to Latin tokens before pattern matching (JS word boundary `` is ASCII-only).
+- Arabic unit words are normalized to Latin tokens before pattern matching (JS word boundary `\b` is ASCII-only).
 - Text PDFs: columns are rebuilt from text positions anchored on the header line. Arabic text in PDFs
   may come back in visual order from pdf.js — Arabic PDFs are better processed via AI (opt-in) or
   uploaded as Excel. **Known Limitation.**
