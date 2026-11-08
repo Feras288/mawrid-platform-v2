@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { randomToken } from "@platform/core";
 import { withSystem } from "@platform/db";
 import { notificationDeliveries, purchaseOrders, rfqRecipients } from "@platform/db/schema";
@@ -203,6 +203,29 @@ describe("B2B procurement cycle: RFQ → quotations → evaluation → approvals
     expect(timeline).toEqual(expect.arrayContaining(["created", "issued", "acknowledged", "shipment_created", "goods_received"]));
     // supplier timeline hides buyer-internal events
     expect((await getPo(s2.ctx, poS2.id)).events.map((e) => e.kind)).not.toContain("submitted");
+
+    // ---- KPIs and price observations are derived from the same records
+    const { buyerKpis, supplierKpis } = await import("../src/analytics");
+    const { collectObservations } = await import("../src/price-index");
+    const sums = await withSystem((tx) =>
+      tx.execute(sql`select coalesce(sum(total) filter (where org_id = ${manager.orgId}),0)::text as buyer, coalesce(sum(total) filter (where supplier_org_id = ${s2.org.id}),0)::text as sup
+                     from purchase_orders where approval_status = 'approved' and fulfillment_status <> 'cancelled'`),
+    );
+    const totals = sums.rows[0] as { buyer: string; sup: string };
+    const bk = await buyerKpis(manager);
+    expect(bk.poValue).toBe(Number(totals.buyer).toFixed(2));
+    expect(bk.rfqsSent).toBeGreaterThanOrEqual(1);
+    expect(bk.responseRatePct).not.toBeNull();
+    expect(bk.spendByMonth).toHaveLength(12);
+    expect(bk.spendByMonth.at(-1)!.value).not.toBe("0.00");
+    const sk = await supplierKpis(s2.ctx);
+    expect(sk.poValue).toBe(Number(totals.sup).toFixed(2));
+    expect(sk.winRatePct).not.toBeNull();
+    await expect(buyerKpis(s2.ctx)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const first = await collectObservations();
+    const again = await collectObservations();
+    expect(again.po ?? 0).toBe(0); // idempotent
+    expect((first.po ?? 0) + (first.rfq_quote ?? 0) + (first.rfq_award ?? 0)).toBeGreaterThan(0);
   });
 
   it("email failures are retried and recorded without corrupting the RFQ", async () => {

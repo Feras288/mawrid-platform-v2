@@ -2,7 +2,7 @@
 
 Last updated: 2026-11-08
 
-## Current phase: 7 — Analytics & Price Index (starting)
+## Current phase: 8 — Admin & Integrations (starting)
 
 | Phase | Status |
 |---|---|
@@ -13,8 +13,8 @@ Last updated: 2026-11-08
 | 4 RFQ & Quotations | Done |
 | 5 Approvals & PO | Done |
 | 6 Store | Done |
-| 7 Analytics & Price Index | Pending |
-| 8 Admin & Integrations | Pending |
+| 7 Analytics & Price Index | Done |
+| 8 Admin & Integrations | In progress |
 | 9 Integration hardening | Pending |
 | 10 Final audit | Pending |
 
@@ -72,12 +72,24 @@ Supplier: store orders, returns, delivery zones. Seed: platform default delivery
 Known gaps → Phase 8: admin finance UI (bank-transfer confirmation, refunds needing action, ledger
 summary, webhook log) — services exist and are tested; store policy texts are drafts.
 
-## Phase 7 tasks
-- [ ] Price observations (6 types: catalog list, store sale, RFQ quote, awarded, PO, index) captured from events, unit-normalized, ex-VAT
-- [ ] Outlier detection (IQR/MAD), comparability rules, k-anonymity (≥5 obs, ≥3 orgs), 90-day window (configurable)
-- [ ] Price index snapshots (job), charts, methodology page, alerts (subscriptions + notifications)
-- [ ] Buyer KPIs (spend, savings vs. median quote, cycle times, supplier performance), supplier KPIs, store KPIs — test data excluded
-- [ ] Tests: k-anonymity thresholds, outliers, test-data exclusion, KPI math; E2E smoke
+## Phase 7 — done
+Price observations from six separated sources (catalog retail/enterprise daily, store sales, current
+RFQ quotes, approved awards, issued POs) normalized to base units ex-VAT, idempotent capture, test data
+flagged; daily snapshots (median, IQR, min/max/mean, n, org count, quality) with Tukey outlier removal and
+privacy rules (≥5 obs, ≥3 independent orgs incl. buyers for buyer-side prices, single-supplier share
+≤60%; suppressed rows keep no prices); raw observations system-only; price alerts with notifications;
+buyer, supplier and platform KPIs from recorded data (platform excludes test orgs); dashboards with
+accessible SVG charts (hover + data table), price index list/series/methodology/alerts; daily worker job.
+Known gaps: index is national only (no per-region breakdown yet); dark mode not offered by the app.
+
+## Phase 8 tasks
+- [ ] Admin: users (search, suspend, sessions), organizations (status, test flag), suppliers (exists), catalog (exists)
+- [ ] Admin integrations & settings: SMTP (test send), AI provider/budget, payments (bank transfer details, provider status), commission, store policies, price index config — secrets encrypted, never returned
+- [ ] Feature flags UI (prod-locked flags), jobs monitor (job_runs, queues), outbox/email failures, webhook log
+- [ ] AI usage & cost; audit log viewer (filters); finance (ledger summary, bank-transfer confirmation, refunds needing action, store orders)
+- [ ] Break-glass access (reason, expiry, audited, read-only); PDPL: consents, data export (job + email), deletion requests (review + anonymize), account privacy page
+- [ ] Content pages (terms/privacy drafts, versioned) and reports (platform KPIs, price-index health)
+- [ ] Tests: settings secrecy, break-glass audit/expiry, privacy export/deletion, admin authz (MFA), E2E admin paths
 
 ## Log
 - 2026-11-08: Plan approved; repository initialized; documentation set created.
@@ -87,3 +99,4 @@ summary, webhook log) — services exist and are tested; store policy texts are 
 
 - 2026-11-09: Phases 4–5 complete (RFQ, quotations, comparison/award, approvals, POs, fulfilment, verification page) — tests: unit 52, integration 42, E2E 9 (all passing).
 - 2026-11-09: Phase 6 complete (store, payments, fulfilment, returns, ledger, invoices) — tests: unit 65, integration 45, E2E 12 (all passing).
+- 2026-11-09: Phase 7 complete (price index, alerts, KPIs, dashboards) — tests: unit 70, integration 48, E2E 13 (all passing).

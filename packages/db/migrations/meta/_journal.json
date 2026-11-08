@@ -50,6 +50,13 @@
       "when": 1794175627167,
       "tag": "0006_store_commerce",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794177232872,
+      "tag": "0007_price_index",
+      "breakpoints": true
     }
   ]
 }

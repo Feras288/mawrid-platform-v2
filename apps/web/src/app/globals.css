@@ -17,8 +17,8 @@
   --color-sand-100: #f4f3ee;
   --color-sand-200: #e8e6de;
   --color-sand-300: #d6d3c7;
-  --color-ink-400: #8a918d;
-  --color-ink-500: #6b746f;
+  --color-ink-400: #6b746f; /* ≥ 4.5:1 on white and sand-50 (WCAG AA text) */
+  --color-ink-500: #5f6763; /* ≥ 4.5:1 on sand-100 */
   --color-ink-600: #4d5652;
   --color-ink-700: #333b37;
   --color-ink-900: #1d2622;

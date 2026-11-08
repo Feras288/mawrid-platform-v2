@@ -133,3 +133,12 @@ Org-wide by default; `visibility = members` restricts to project members/manager
 - Invoices: per group on payment, simplified (B2C) or standard (valid buyer VAT), credit notes on
   refunds; ZATCA phase-1 QR TLV. Fatoora (phase 2) is Integration Pending (DEC-06).
 - Suppliers deliver via their own zones/rates; if a supplier has none, platform default zones apply.
+
+## ADR-023 — Price index method v1 (2026-11-09)
+Six price types are captured separately and never mixed. Prices are normalized to the unit's base unit,
+ex-VAT, SAR. Statistics: type-7 quantiles, Tukey fences (1.5×IQR, n ≥ 5). Publication requires
+n ≥ 5, ≥ 3 independent organizations (for quotes, awards and POs the smaller of distinct suppliers and
+distinct buyers) and no supplier above 60% of observations; floors cannot be configured lower. Suppressed
+snapshots store counts and the reason but no prices. Raw observations are system-only. Snapshots are
+daily over a rolling 90-day window. Quotes count only while current and submitted; awards only while
+current and approved. National scope only in v1.

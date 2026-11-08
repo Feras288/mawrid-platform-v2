@@ -428,7 +428,8 @@
   "eta_invalid": "Maximum delivery days must be at least the minimum.",
   "unknown_city": "Unknown city.",
   "payouts_disabled": "Payouts are disabled.",
-  "quantity_positive": "Quantity must be positive."
+  "quantity_positive": "Quantity must be positive.",
+  "alerts_limit": "You have reached the maximum number of alerts."
  },
  "perms": {
   "org_view": "View organization",
@@ -1484,5 +1485,89 @@
   "original": "Original invoice",
   "zatcaNote": "QR code per ZATCA e-invoicing phase 1. Integration with the Fatoora platform is pending onboarding.",
   "print": "Print"
+ },
+ "analytics": {
+  "title": "Analytics",
+  "spendByMonth": "Purchase order spend by month (SAR, incl. VAT)",
+  "salesByMonth": "Sales by month — POs and store (SAR, incl. VAT)",
+  "poValue": "PO value",
+  "poCount": "Purchase orders",
+  "rfqsSent": "RFQs sent",
+  "openRfqs": "Open RFQs",
+  "responseRate": "Supplier response rate",
+  "quotesPerRfq": "Quotations per RFQ",
+  "cycle": "Median RFQ → award",
+  "days": "{n} days",
+  "hours": "{n} h",
+  "savings": "Savings vs. median quote",
+  "savingsHint": "Awarded price compared with the median of the quotations received for the same line (lines with ≥ 2 quotes).",
+  "onTime": "On-time deliveries",
+  "topSuppliers": "Top suppliers by PO value",
+  "storeSpend": "Store purchases",
+  "pendingApprovals": "Pending approvals",
+  "approvalTime": "Median approval time",
+  "rfqsReceived": "RFQs received",
+  "winRate": "Win rate (lines)",
+  "quotedValue": "Open quotation value",
+  "onTimeShip": "Shipped on time",
+  "storeSales": "Store sales",
+  "storeOrders": "Store orders",
+  "returnRate": "Return rate",
+  "noData": "Not enough data yet",
+  "tableView": "Show data table",
+  "month": "Month",
+  "value": "Value",
+  "dataNote": "Figures are computed from recorded transactions only."
+ },
+ "priceIndex": {
+  "title": "Price index",
+  "intro": "Aggregated market prices from real catalog, store, quotation, award and purchase-order records. Only aggregates that meet the privacy thresholds are shown; no company or individual price is ever disclosed.",
+  "search": "Search products or categories",
+  "kind": "Price type",
+  "kinds": {
+   "catalog_retail": "Catalog retail",
+   "catalog_enterprise": "Catalog business",
+   "store_sale": "Store sales",
+   "rfq_quote": "RFQ quotations",
+   "rfq_award": "Awarded prices",
+   "po": "Purchase orders"
+  },
+  "subject": "Product / category",
+  "subjectTypes": {
+   "canonical": "Product",
+   "category": "Category"
+  },
+  "median": "Median",
+  "range": "Interquartile range",
+  "p25": "25th percentile",
+  "p75": "75th percentile",
+  "n": "Observations",
+  "orgs": "Organizations",
+  "quality": "Quality",
+  "qualities": {
+   "high": "High",
+   "medium": "Medium",
+   "low": "Low"
+  },
+  "change30": "30-day change",
+  "perUnit": "per {unit}, excl. VAT",
+  "asOf": "As of {date}",
+  "noData": "No published index yet. Aggregates appear once enough independent data exists.",
+  "series": "Median with interquartile range",
+  "methodology": "Methodology",
+  "methodBody": "Window: last {days} days. Prices are converted to the unit's base unit and excluded VAT. Outliers outside 1.5×IQR are removed. An aggregate is published only with at least {obs} observations from at least {orgs} independent organizations (for quotations, awards and POs both suppliers and buyers are counted) and no single supplier above {share}% of observations. Test and demo data are excluded. Price types are never mixed.",
+  "alerts": "My price alerts",
+  "newAlert": "Create alert",
+  "threshold": "Notify when the median moves by (%)",
+  "direction": "Direction",
+  "directions": {
+   "any": "Up or down",
+   "up": "Up",
+   "down": "Down"
+  },
+  "alertCreated": "Alert created",
+  "noAlerts": "No alerts",
+  "delete": "Delete",
+  "date": "Date"
  }
 }

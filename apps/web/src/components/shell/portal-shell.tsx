@@ -53,7 +53,7 @@ export async function PortalShell({ ctx, portalLabel, nav, children }: { ctx: Ct
           <Brand />
         </div>
         <div className="px-3 py-3">
-          <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-400">{portalLabel}</p>
+          <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">{portalLabel}</p>
           {sidebar}
         </div>
       </aside>

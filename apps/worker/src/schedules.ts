@@ -10,5 +10,6 @@ export async function scheduleRecurring(queues: Map<QueueName, Queue>): Promise<
   await def.upsertJobScheduler("flag-po-delays", { pattern: "0 * * * *", tz }, { name: "po.flag_delays", data: {} });
   await def.upsertJobScheduler("expire-unpaid-orders", { every: 5 * 60_000 }, { name: "store.expire_unpaid", data: {} });
   await def.upsertJobScheduler("complete-delivered-groups", { pattern: "30 * * * *", tz }, { name: "store.complete_delivered", data: {} });
+  await queues.get("analytics")!.upsertJobScheduler("price-index-daily", { pattern: "30 2 * * *", tz }, { name: "price_index.run", data: {} });
   await def.upsertJobScheduler("expire-supplier-documents", { pattern: "0 2 * * *", tz }, { name: "suppliers.expire_documents", data: {} });
 }

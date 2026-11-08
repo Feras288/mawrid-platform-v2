@@ -24,7 +24,7 @@ completion from this table).
 | REQ-UX-01 | Separate experiences: store, account, org, supplier, admin (§3.2) | web | 5 portal layouts | e2e nav | Not Implemented |
 | REQ-UX-02 | Responsive, typography, Arabic fonts (§3.3) | web | Mobile/desktop screenshots | e2e mobile | Not Implemented |
 | REQ-UX-03 | Loading/empty/error/success states (§3.3) | web | Components used on all lists | review: EmptyState/Spinner/Alert/toasts on implemented pages (store/admin pending) | Implemented |
-| REQ-UX-04 | Keyboard nav, ARIA, focus, reduced motion (§3.3) | web | axe: no serious violations | e2e foundation axe on auth pages (portal pages: Phase 9) | Implemented |
+| REQ-UX-04 | Keyboard nav, ARIA, focus, reduced motion (§3.3) | web | axe: no serious violations | e2e foundation (auth pages) + analytics.spec (dashboard, price index ar) axe: no serious/critical; full portal sweep in Phase 9 | Implemented |
 | REQ-UX-05 | No fake working buttons (§3.3) | web | Disabled + reason when unavailable | review | Not Implemented |
 | REQ-UX-06 | Locale-aware dates/numbers/currency (§3.1) | i18n | Formatters per locale | next-intl formatters (dates, numbers, SAR currency) on all pages | Implemented |
 | REQ-AUT-01 | Account types & roles (§4.1) | authz | Role templates for all 11 types | foundation.unit role templates cover every account type | Tested |
@@ -70,14 +70,14 @@ completion from this table).
 | REQ-COM-04 | Per-supplier fulfilment groups; separated amounts; no real settlements (§12.4) | commerce/settlements | Charges separation tests | store.int (per-supplier groups, typed charges, ledger balanced, supplier balances, payouts flag off); RLS hides commission/payable from customers | Tested |
 | REQ-COM-05 | Configurable shipping (§12.5) | commerce | Zones/rates | store.int (supplier zones, free-over threshold, platform default fallback, missing zone → shipping_required) | Tested |
 | REQ-NOT-01 | Notification service: email + in-app, safe-disabled SMTP, bilingual templates, logs, retry, dedupe, failures visible, settings & test (§13) | notifications | Tests + admin page | foundation.unit templates; procurement.int email failure persisted & retried (admin settings page: Phase 8) | Implemented |
-| REQ-ANA-01 | Procurement KPIs (§14.1) | analytics | Computed from data | integration | Not Implemented |
-| REQ-ANA-02 | Supplier KPIs (§14.2) | analytics | Computed from data | integration | Not Implemented |
-| REQ-ANA-03 | No mixing test data in KPIs (§14) | analytics | Test orgs excluded | integration | Not Implemented |
-| REQ-PIX-01 | Six price types separated (§15.1) | price-index | Typed observations | unit | Not Implemented |
-| REQ-PIX-02 | Index stats incl. sample size & quality (§15.2) | price-index | Stats tests | unit | Not Implemented |
-| REQ-PIX-03 | Data quality: units, tax basis, dupes, outliers, min sample, comparability, methodology (§15.3) | price-index | Tests + doc | unit | Not Implemented |
-| REQ-PIX-04 | Privacy: no private prices / identities; k-anonymity (§15.4) | price-index | Threshold tests | unit | Not Implemented |
-| REQ-PIX-05 | Price alerts (§15.5) | price-index | Alert generation | integration | Not Implemented |
+| REQ-ANA-01 | Procurement KPIs (§14.1) | analytics | Computed from data | procurement.int (buyer KPIs = recorded PO totals, RFQ/response/cycle/savings/on-time); e2e analytics.spec | Tested |
+| REQ-ANA-02 | Supplier KPIs (§14.2) | analytics | Computed from data | procurement.int (supplier PO value, win rate); analytics.int (store sales, monthly series) | Tested |
+| REQ-ANA-03 | No mixing test data in KPIs (§14) | analytics | Test orgs excluded | analytics.int (platform GMV excludes test orgs; test observations excluded from index) | Tested |
+| REQ-PIX-01 | Six price types separated (§15.1) | price-index | Typed observations | price-index stats + analytics.int (six kinds never mixed; snapshots per kind) | Tested |
+| REQ-PIX-02 | Index stats incl. sample size & quality (§15.2) | price-index | Stats tests | analytics.int (median, IQR, n, org count, quality); e2e analytics.spec (series + table view) | Tested |
+| REQ-PIX-03 | Data quality: units, tax basis, dupes, outliers, min sample, comparability, methodology (§15.3) | price-index | Tests + doc | analytics.int (base-unit normalization, ex-VAT, IQR outliers flagged, window, idempotent capture, superseded quotes removed); methodology shown in UI | Tested |
+| REQ-PIX-04 | Privacy: no private prices / identities; k-anonymity (§15.4) | price-index | Threshold tests | price-index.unit + analytics.int (≥5 obs, ≥3 orgs incl. buyers for quotes/awards/POs, dominance ≤60%; suppressed rows store no prices; raw observations system-only under RLS) | Tested |
+| REQ-PIX-05 | Price alerts (§15.5) | price-index | Alert generation | analytics.int (alert baseline, +20% move notifies once) | Tested |
 | REQ-CMP-01 | VAT handling (§16) | commerce/po | 15% configurable, per-line | money.unit per-line VAT, procurement.int, store.int (goods + shipping VAT) | Tested |
 | REQ-CMP-02 | ZATCA-ready invoicing layer (§16) | invoicing | Invoice data + QR TLV; Fatoora pending | payments.unit TLV encode/decode; store.int invoices + credit notes; Fatoora integration pending | Integration Pending |
 | REQ-CMP-03 | PDPL: privacy notice, consents, retention, data rights (§16) | privacy | Export/deletion requests | integration | Not Implemented |

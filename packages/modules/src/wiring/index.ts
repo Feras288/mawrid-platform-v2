@@ -13,6 +13,7 @@ import { syncReferenceData } from "../reference";
 import { expireDocuments } from "../suppliers";
 import { completeDeliveredGroups } from "../commerce";
 import { expireUnpaidOrders } from "../payments";
+import { runPriceIndex } from "../price-index";
 
 on("import.requested", async (e, enqueue) => {
   const p = e.payload as { batchId: string; userId: string; orgId: string };
@@ -49,5 +50,7 @@ registerProcessor("default", "reference.sync", async () => syncReferenceData());
 
 registerProcessor("default", "store.expire_unpaid", async () => expireUnpaidOrders());
 registerProcessor("default", "store.complete_delivered", async () => completeDeliveredGroups());
+
+registerProcessor("analytics", "price_index.run", async () => runPriceIndex());
 
 export const WIRED = true;

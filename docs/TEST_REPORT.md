@@ -26,7 +26,14 @@ Results are recorded from actual runs only (date, command, outcome). No result i
 | 2026-11-09 | Integration (Phase 6) | `pnpm test:integration` | 45/45 passed | + store: multi-vendor checkout (idempotent), typed charges, webhook signature/dedupe/re-fetch/amount mismatch, ledger balanced, invoices + credit notes, supplier/customer isolation (raw SQL as app_user), cancellation & return refunds, failed payment, expiry, late payment auto-refund, checkout flag |
 | 2026-11-09 | E2E (Phase 6) | `playwright test e2e/store.spec.ts` | 3/3 passed (desktop + mobile) | critical path 13 in Arabic UI; store pages have no horizontal overflow on mobile |
 
+| 2026-11-09 | Unit (Phase 7) | `pnpm test` | 70/70 passed | + quantiles, Tukey outliers, privacy thresholds (min obs/orgs, buyer-side orgs, dominance), quality grades |
+| 2026-11-09 | Integration (Phase 7) | `pnpm test:integration` | 48/48 passed | + price index (publication rules, outliers, test-data/window exclusion, RLS on raw observations & suppressed snapshots, alerts), observation capture from store sales & catalog (idempotent, base units), KPIs vs recorded totals, platform KPIs exclude test orgs |
+| 2026-11-09 | E2E (all) | `playwright test` | 13/13 passed | + analytics dashboard & price index (ar) with axe checks |
+
 ## Defects found by tests and fixed
+- Buyer on-time KPI referenced a non-existent `goods_receipts.received_at` column (the column is `created_at`) → found by E2E, fixed; covered by procurement.int KPI assertions.
+- Set-based SQL inserts did not receive the application-side UUIDv7 default → `app_uuidv7()` SQL function added.
+- axe: `aria-label` on SVG groups inside a `role=img` chart, and muted text tokens (`ink-400` 3.2:1) below AA → chart groups made presentational (table view carries values); `ink-400`/`ink-500` darkened to ≥ 4.5:1 on white/sand surfaces.
 - `allocate()` could give a rounding cent to a zero-weight part (e.g. commission when commission is 0) → cents now go only to positive weights (unit test).
 - Store search normalized `UPVC-110` to `upvc 110` before matching SKUs → SKUs now match the raw query (found by E2E).
 - Store server actions read `key[]` names although the form helper strips `[]` → shipping choices were dropped (found by E2E).

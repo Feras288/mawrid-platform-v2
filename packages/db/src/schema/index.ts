@@ -7,3 +7,4 @@ export * from "./projects";
 export * from "./rfq";
 export * from "./po";
 export * from "./commerce";
+export * from "./analytics";
