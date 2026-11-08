@@ -30,7 +30,11 @@ Results are recorded from actual runs only (date, command, outcome). No result i
 | 2026-11-09 | Integration (Phase 7) | `pnpm test:integration` | 48/48 passed | + price index (publication rules, outliers, test-data/window exclusion, RLS on raw observations & suppressed snapshots, alerts), observation capture from store sales & catalog (idempotent, base units), KPIs vs recorded totals, platform KPIs exclude test orgs |
 | 2026-11-09 | E2E (all) | `playwright test` | 13/13 passed | + analytics dashboard & price index (ar) with axe checks |
 
+| 2026-11-09 | Integration (Phase 8) | `pnpm test:integration` | 54/54 passed | + admin: suspend/reactivate (sessions revoked, context refused, self/last-admin guards), org suspension, break-glass lifecycle, encrypted settings never returned, settings validation, content versioning & public visibility, PDPL consents/export/deletion |
+| 2026-11-09 | E2E (all) | `playwright test` | 15/15 passed | + admin console sweep with axe, SMTP secret hidden, content publish → public page, break-glass read-only, privacy self-service export |
+
 ## Defects found by tests and fixed
+- Admin numeric settings: an empty field was coerced to 0 instead of using the default (e.g. SMTP port) → blank values now fall back to defaults (found by E2E).
 - Buyer on-time KPI referenced a non-existent `goods_receipts.received_at` column (the column is `created_at`) → found by E2E, fixed; covered by procurement.int KPI assertions.
 - Set-based SQL inserts did not receive the application-side UUIDv7 default → `app_uuidv7()` SQL function added.
 - axe: `aria-label` on SVG groups inside a `role=img` chart, and muted text tokens (`ink-400` 3.2:1) below AA → chart groups made presentational (table view carries values); `ink-400`/`ink-500` darkened to ≥ 4.5:1 on white/sand surfaces.

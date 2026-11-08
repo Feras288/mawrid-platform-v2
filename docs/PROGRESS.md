@@ -2,7 +2,7 @@
 
 Last updated: 2026-11-08
 
-## Current phase: 8 — Admin & Integrations (starting)
+## Current phase: 9 — Integration hardening (starting)
 
 | Phase | Status |
 |---|---|
@@ -14,8 +14,8 @@ Last updated: 2026-11-08
 | 5 Approvals & PO | Done |
 | 6 Store | Done |
 | 7 Analytics & Price Index | Done |
-| 8 Admin & Integrations | In progress |
-| 9 Integration hardening | Pending |
+| 8 Admin & Integrations | Done |
+| 9 Integration hardening | In progress |
 | 10 Final audit | Pending |
 
 ## Phase 1 — done
@@ -82,14 +82,23 @@ buyer, supplier and platform KPIs from recorded data (platform excludes test org
 accessible SVG charts (hover + data table), price index list/series/methodology/alerts; daily worker job.
 Known gaps: index is national only (no per-region breakdown yet); dark mode not offered by the app.
 
-## Phase 8 tasks
-- [ ] Admin: users (search, suspend, sessions), organizations (status, test flag), suppliers (exists), catalog (exists)
-- [ ] Admin integrations & settings: SMTP (test send), AI provider/budget, payments (bank transfer details, provider status), commission, store policies, price index config — secrets encrypted, never returned
-- [ ] Feature flags UI (prod-locked flags), jobs monitor (job_runs, queues), outbox/email failures, webhook log
-- [ ] AI usage & cost; audit log viewer (filters); finance (ledger summary, bank-transfer confirmation, refunds needing action, store orders)
-- [ ] Break-glass access (reason, expiry, audited, read-only); PDPL: consents, data export (job + email), deletion requests (review + anonymize), account privacy page
-- [ ] Content pages (terms/privacy drafts, versioned) and reports (platform KPIs, price-index health)
-- [ ] Tests: settings secrecy, break-glass audit/expiry, privacy export/deletion, admin authz (MFA), E2E admin paths
+## Phase 8 — done
+Admin console (users suspend/reactivate with session revocation and guards; organizations suspend /
+test-data flag; break-glass with reason, expiry, owner notification, read-only context and audit;
+integrations & settings for SMTP, AI provider, bank transfer, commission, store policies and price-index
+thresholds — secrets encrypted and never returned, connectivity tests; feature flags; jobs/outbox/
+failed-email retry; AI usage & cost; audit viewer; privacy requests; versioned content pages with public
+legal pages; platform reports & price-index health; finance (ledger, bank-transfer confirmation, manual
+refunds, webhook log); store orders; default delivery rates). SMTP and AI read admin settings (60 s cache)
+with env fallback. Inactive accounts cannot sign in. PDPL self-service: consents, data export (worker,
+private file), deletion requests with admin review and anonymization (legal records retained).
+
+## Phase 9 tasks
+- [ ] Dockerfiles (web standalone, worker with Chromium + fonts), docker-compose.prod.yml for Coolify, migrate job, health checks
+- [ ] Worker bundling of workspace packages (esbuild) and production build verification (`next build`)
+- [ ] E2E: remaining critical paths in Arabic & English and mobile; axe sweep of main portal pages
+- [ ] Performance measurements vs targets (list pages p95, BOQ 2,000 lines, comparison 500×8, PO PDF 200 lines) on generated data
+- [ ] Security review pass (headers/CSP, authz on every action, file access, rate limits), backup/restore scripts, DEPLOYMENT.md
 
 ## Log
 - 2026-11-08: Plan approved; repository initialized; documentation set created.
@@ -100,3 +109,4 @@ Known gaps: index is national only (no per-region breakdown yet); dark mode not 
 - 2026-11-09: Phases 4–5 complete (RFQ, quotations, comparison/award, approvals, POs, fulfilment, verification page) — tests: unit 52, integration 42, E2E 9 (all passing).
 - 2026-11-09: Phase 6 complete (store, payments, fulfilment, returns, ledger, invoices) — tests: unit 65, integration 45, E2E 12 (all passing).
 - 2026-11-09: Phase 7 complete (price index, alerts, KPIs, dashboards) — tests: unit 70, integration 48, E2E 13 (all passing).
+- 2026-11-09: Phase 8 complete (admin console, integrations/settings, break-glass, PDPL, content) — tests: unit 70, integration 54, E2E 15 (all passing).

@@ -24,8 +24,8 @@ completion from this table).
 | REQ-UX-01 | Separate experiences: store, account, org, supplier, admin (§3.2) | web | 5 portal layouts | e2e nav | Not Implemented |
 | REQ-UX-02 | Responsive, typography, Arabic fonts (§3.3) | web | Mobile/desktop screenshots | e2e mobile | Not Implemented |
 | REQ-UX-03 | Loading/empty/error/success states (§3.3) | web | Components used on all lists | review: EmptyState/Spinner/Alert/toasts on implemented pages (store/admin pending) | Implemented |
-| REQ-UX-04 | Keyboard nav, ARIA, focus, reduced motion (§3.3) | web | axe: no serious violations | e2e foundation (auth pages) + analytics.spec (dashboard, price index ar) axe: no serious/critical; full portal sweep in Phase 9 | Implemented |
-| REQ-UX-05 | No fake working buttons (§3.3) | web | Disabled + reason when unavailable | review | Not Implemented |
+| REQ-UX-04 | Keyboard nav, ARIA, focus, reduced motion (§3.3) | web | axe: no serious violations | axe (no serious/critical): auth pages, analytics, price index (ar), admin console; full portal sweep in Phase 9 | Implemented |
+| REQ-UX-05 | No fake working buttons (§3.3) | web | Disabled + reason when unavailable | review: unavailable actions are disabled with reason (payments unconfigured, payouts locked, supplier-cannot-buy, break-glass read-only) | Implemented |
 | REQ-UX-06 | Locale-aware dates/numbers/currency (§3.1) | i18n | Formatters per locale | next-intl formatters (dates, numbers, SAR currency) on all pages | Implemented |
 | REQ-AUT-01 | Account types & roles (§4.1) | authz | Role templates for all 11 types | foundation.unit role templates cover every account type | Tested |
 | REQ-AUT-02 | Multi-org membership w/ different roles (§4.1) | organizations | Switch org; perms differ | organizations.int; e2e procurement (supplier switches org) | Tested |
@@ -33,7 +33,7 @@ completion from this table).
 | REQ-AUT-04 | Org data isolation (§4.3) | db/RLS | Cross-org reads return 0 rows as app_user | rls.int (raw SQL as app_user), boq.int isolation, suppliers.int RLS | Tested |
 | REQ-AUT-05 | Supplier can't see competitor quotes / non-addressed RFQs (§4.3) | rfq/quotations | Service + RLS tests | procurement.int: supplier B cannot read A's quotation (service + RLS) nor un-addressed RFQs | Tested |
 | REQ-AUT-06 | IDOR & unauthorized file access prevented (§4.3) | files | Tests with foreign ids | rls.int foreign ids; file access via app_file_visible policies | Tested |
-| REQ-AUT-07 | Secure sessions, password hashing, CSRF, CORS, XSS, rate limit, cookies (§4.4) | identity | Config + tests | integration/e2e | Not Implemented |
+| REQ-AUT-07 | Secure sessions, password hashing, CSRF, CORS, XSS, rate limit, cookies (§4.4) | identity | Config + tests | Better Auth (scrypt hashes, HttpOnly cookies, rate limits), CSP/headers, inactive accounts blocked at sign-in, admin MFA gate; e2e foundation; CSP 'unsafe-inline' = Known Limitation | Tested |
 | REQ-AUT-08 | Secure upload, signed short URLs (§4.4) | files | Magic-byte validation, 300s URLs | foundation.unit upload validation (magic bytes, size); presigned ≤300s | Tested |
 | REQ-AUT-09 | Audit of sensitive operations (§4.4) | audit | Entries for role/financial/approval changes | rls.int audit append-only; audit rows asserted in organizations/suppliers/procurement int | Tested |
 | REQ-AUT-10 | Account recovery, email verification, MFA (§4.4) | identity | Flows work | e2e foundation (register/verify/login); 2FA/reset pages implemented | Tested |
@@ -69,7 +69,7 @@ completion from this table).
 | REQ-COM-03 | Payment abstraction, webhooks w/ signature, idempotency, states, refunds, reconciliation (§12.3) | payments | Webhook tests | store.int (signed webhooks, invalid signature, dedupe, re-fetch, amount mismatch, late payment refund, expiry); payments.unit (Moyasar contract w/ mocked HTTP, test provider prod refusal). Moyasar live = Integration Pending | Tested |
 | REQ-COM-04 | Per-supplier fulfilment groups; separated amounts; no real settlements (§12.4) | commerce/settlements | Charges separation tests | store.int (per-supplier groups, typed charges, ledger balanced, supplier balances, payouts flag off); RLS hides commission/payable from customers | Tested |
 | REQ-COM-05 | Configurable shipping (§12.5) | commerce | Zones/rates | store.int (supplier zones, free-over threshold, platform default fallback, missing zone → shipping_required) | Tested |
-| REQ-NOT-01 | Notification service: email + in-app, safe-disabled SMTP, bilingual templates, logs, retry, dedupe, failures visible, settings & test (§13) | notifications | Tests + admin page | foundation.unit templates; procurement.int email failure persisted & retried (admin settings page: Phase 8) | Implemented |
+| REQ-NOT-01 | Notification service: email + in-app, safe-disabled SMTP, bilingual templates, logs, retry, dedupe, failures visible, settings & test (§13) | notifications | Tests + admin page | foundation.unit templates; procurement.int failure persisted & retried; admin jobs page (failed deliveries + retry); SMTP settings with test send (admin.int, e2e) | Tested |
 | REQ-ANA-01 | Procurement KPIs (§14.1) | analytics | Computed from data | procurement.int (buyer KPIs = recorded PO totals, RFQ/response/cycle/savings/on-time); e2e analytics.spec | Tested |
 | REQ-ANA-02 | Supplier KPIs (§14.2) | analytics | Computed from data | procurement.int (supplier PO value, win rate); analytics.int (store sales, monthly series) | Tested |
 | REQ-ANA-03 | No mixing test data in KPIs (§14) | analytics | Test orgs excluded | analytics.int (platform GMV excludes test orgs; test observations excluded from index) | Tested |
@@ -80,9 +80,9 @@ completion from this table).
 | REQ-PIX-05 | Price alerts (§15.5) | price-index | Alert generation | analytics.int (alert baseline, +20% move notifies once) | Tested |
 | REQ-CMP-01 | VAT handling (§16) | commerce/po | 15% configurable, per-line | money.unit per-line VAT, procurement.int, store.int (goods + shipping VAT) | Tested |
 | REQ-CMP-02 | ZATCA-ready invoicing layer (§16) | invoicing | Invoice data + QR TLV; Fatoora pending | payments.unit TLV encode/decode; store.int invoices + credit notes; Fatoora integration pending | Integration Pending |
-| REQ-CMP-03 | PDPL: privacy notice, consents, retention, data rights (§16) | privacy | Export/deletion requests | integration | Not Implemented |
-| REQ-ADM-01 | Super admin features list (§17) | admin | Each page live | e2e admin | Not Implemented |
-| REQ-ADM-02 | No unrestricted admin access to confidential docs; break-glass logged (§17) | admin/RLS | Tests | break-glass read-only context + audited supplier document access (admin UI: Phase 8) | Implemented |
+| REQ-CMP-03 | PDPL: privacy notice, consents, retention, data rights (§16) | privacy | Export/deletion requests | admin.int privacy (consents, export visible only to owner, deletion reject/approve with anonymization & legal retention); e2e admin.spec (consent toggle, export download). Legal texts are drafts (DEC-10) | Tested |
+| REQ-ADM-01 | Super admin features list (§17) | admin | Each page live | admin.int (users, orgs, settings, content, break-glass); e2e admin.spec (all 15 admin sections render, axe, settings secrecy, content publish, break-glass) | Tested |
+| REQ-ADM-02 | No unrestricted admin access to confidential docs; break-glass logged (§17) | admin/RLS | Tests | admin.int (no access without grant; reasoned, time-boxed, read-only, owners notified, audited, revocable, expiry); e2e admin.spec (read-only banner) | Tested |
 | REQ-QA-01 | Test types (§18.1) | tests | Suites exist & pass | CI | Not Implemented |
 | REQ-QA-02 | 17 critical scenarios (§18.2) | tests | Each mapped to a test | e2e/integration | Not Implemented |
 | REQ-PRF-01 | Pagination, indexing, caching, jobs, retries, timeouts, error boundaries, logging, health, graceful shutdown (§19) | all | Present | review | Not Implemented |

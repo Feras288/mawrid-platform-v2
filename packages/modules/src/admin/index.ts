@@ -260,15 +260,17 @@ export async function aiUsageReport(ctx: Ctx, opts: { months?: number } = {}) {
 
 // ------------------------------------------------------------------------------------------ integration settings
 
+const blankToUndef = (v: unknown) => (v === "" || v === null || v === undefined ? undefined : v);
+const num = <S extends z.ZodType<number, unknown>>(schema: S, def: number) => z.preprocess(blankToUndef, schema.optional().transform((v) => v ?? def));
 const optStr = (max = 200) => z.preprocess((v) => (v === "" || v === null || v === undefined ? undefined : v), z.string().trim().max(max).optional());
 
 export const SETTINGS = {
-  smtp: z.object({ host: optStr(), port: z.coerce.number().int().min(1).max(65535).default(587), user: optStr(), from: optStr(), secure: z.boolean().default(false) }),
+  smtp: z.object({ host: optStr(), port: num(z.coerce.number().int().min(1).max(65535), 587), user: optStr(), from: optStr(), secure: z.boolean().default(false) }),
   ai: z.object({ provider: z.enum(["none", "anthropic"]).default("none"), modelExtraction: optStr(80), modelFast: optStr(80) }),
   "payments.bank_transfer": z.object({ enabled: z.boolean().default(false), bankName: optStr(), iban: z.preprocess((v) => (v === "" ? undefined : v), z.string().trim().regex(/^SA\d{22}$/).optional()), beneficiary: optStr() }),
-  commission: z.object({ ratePct: z.coerce.number().min(0).max(50).default(0) }),
-  "store.policies": z.object({ returnWindowDays: z.coerce.number().int().min(0).max(90).default(7) }),
-  price_index: z.object({ windowDays: z.coerce.number().int().min(7).max(365).default(90), minObs: z.coerce.number().int().min(5).max(1000).default(5), minOrgs: z.coerce.number().int().min(3).max(100).default(3), maxSharePct: z.coerce.number().min(20).max(60).default(60) }),
+  commission: z.object({ ratePct: num(z.coerce.number().min(0).max(50), 0) }),
+  "store.policies": z.object({ returnWindowDays: num(z.coerce.number().int().min(0).max(90), 7) }),
+  price_index: z.object({ windowDays: num(z.coerce.number().int().min(7).max(365), 90), minObs: num(z.coerce.number().int().min(5).max(1000), 5), minOrgs: num(z.coerce.number().int().min(3).max(100), 3), maxSharePct: num(z.coerce.number().min(20).max(60), 60) }),
 } as const;
 export type SettingKey = keyof typeof SETTINGS;
 const SECRET_SETTINGS: SettingKey[] = ["smtp", "ai"];
@@ -398,4 +400,39 @@ export async function listAllOrders(ctx: Ctx, opts: { q?: string; status?: strin
 
 export function assertNotSelf(ctx: Ctx, userId: string) {
   if (ctx.userId === userId) throw new AppError("FORBIDDEN", "Not allowed on yourself", { key: "self_action" });
+}
+
+// ------------------------------------------------------------------------------------------ platform default shipping
+
+/** Platform default delivery zones (used for suppliers without their own zones). */
+export async function listDefaultZones(ctx: Ctx) {
+  authorizeAdmin(ctx, "admin.settings", { requireMfa: false });
+  const { shippingRates, shippingZones } = await import("@platform/db/schema");
+  return withSystem(async (tx) => {
+    const zones = await tx.select().from(shippingZones).where(isNull(shippingZones.supplierOrgId));
+    const rates = zones.length ? await tx.select().from(shippingRates).where(inArray(shippingRates.zoneId, zones.map((z) => z.id))) : [];
+    return zones.map((z) => ({ ...z, rates: rates.filter((r) => r.zoneId === z.id) }));
+  });
+}
+
+export async function saveDefaultZone(ctx: Ctx, id: string | null, input: unknown) {
+  authorizeAdmin(ctx, "admin.settings");
+  const { zoneSchema } = await import("../commerce");
+  const { shippingRates, shippingZones } = await import("@platform/db/schema");
+  const d = zoneSchema.parse(input);
+  if (!d.nationwide && !d.cities.length && !d.regions.length) throw validation("Choose cities, regions or nationwide", { key: "zone_empty" });
+  return withSystem(async (tx) => {
+    let zoneId = id;
+    if (id) {
+      const [z] = await tx.update(shippingZones).set({ name: d.name, nationwide: d.nationwide, cities: d.cities, regions: d.regions, isActive: d.isActive }).where(and(eq(shippingZones.id, id), isNull(shippingZones.supplierOrgId))).returning();
+      if (!z) throw notFound("Zone");
+      await tx.delete(shippingRates).where(eq(shippingRates.zoneId, id));
+    } else {
+      const [z] = await tx.insert(shippingZones).values({ supplierOrgId: null, name: d.name, nationwide: d.nationwide, cities: d.cities, regions: d.regions, isActive: d.isActive }).returning();
+      zoneId = z!.id;
+    }
+    await tx.insert(shippingRates).values(d.rates.map((r) => ({ zoneId: zoneId!, supplierOrgId: null, method: r.method, fee: r.fee, freeOver: r.freeOver, etaMinDays: r.etaMinDays, etaMaxDays: r.etaMaxDays })));
+    await audit(ctx, { action: "shipping.default_zone_saved", entityType: "shipping_zone", entityId: zoneId!, orgId: null, data: { name: d.name } }, tx);
+    return { id: zoneId! };
+  });
 }
