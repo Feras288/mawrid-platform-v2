@@ -15,7 +15,11 @@ export async function switchOrgAction(orgId: string | null): Promise<{ ok: boole
   }
   if (!isUuid(orgId)) return { ok: false };
   const orgs = await listUserOrganizations(session.user.id);
-  if (!orgs.some((o) => o.orgId === orgId)) return { ok: false };
+  if (!orgs.some((o) => o.orgId === orgId)) {
+    // platform admins may enter an organization only through an active, audited break-glass grant
+    const { activeGrant } = await import("@platform/modules/admin");
+    if (!(session.user as { isPlatformAdmin?: boolean }).isPlatformAdmin || !(await activeGrant(session.user.id, orgId))) return { ok: false };
+  }
   jar.set(ACTIVE_ORG_COOKIE, orgId, { httpOnly: true, sameSite: "lax", secure: process.env.APP_ENV === "production" || process.env.APP_ENV === "staging", path: "/", maxAge: 60 * 60 * 24 * 30 });
   return { ok: true };
 }

@@ -33,6 +33,9 @@ export type TemplateKey =
   | "price.alert"
   | "boq.processed"
   | "privacy.export_ready"
+  | "privacy.request_decided"
+  | "breakglass.opened"
+  | "account.status_changed"
   | "system.test";
 
 export const TEMPLATES: Record<TemplateKey, Record<"ar" | "en", TemplateDef>> = {
@@ -127,6 +130,18 @@ export const TEMPLATES: Record<TemplateKey, Record<"ar" | "en", TemplateDef>> = 
   "privacy.export_ready": {
     ar: { subject: "بياناتك جاهزة للتنزيل", body: "تم تجهيز نسخة من بياناتك الشخصية. يمكنك تنزيلها من صفحة الخصوصية في حسابك." },
     en: { subject: "Your data export is ready", body: "A copy of your personal data is ready. Download it from the privacy page in your account." },
+  },
+  "privacy.request_decided": {
+    ar: { subject: "تحديث طلب الخصوصية", body: "تمت معالجة طلبك ({{kind}}): {{status}}. {{notes}}" },
+    en: { subject: "Privacy request update", body: "Your request ({{kind}}) was processed: {{status}}. {{notes}}" },
+  },
+  "breakglass.opened": {
+    ar: { subject: "وصول استثنائي إلى بيانات مؤسستكم", body: "فتح مسؤول المنصة وصولاً استثنائياً للقراءة فقط حتى {{until}}. السبب: {{reason}}. يتم تسجيل كل اطلاع في سجل التدقيق." },
+    en: { subject: "Exceptional access to your organization", body: "A platform administrator opened read-only exceptional access until {{until}}. Reason: {{reason}}. Every view is recorded in the audit log." },
+  },
+  "account.status_changed": {
+    ar: { subject: "تحديث حالة الحساب", body: "تم تغيير حالة {{subject}} إلى: {{status}}. {{reason}}" },
+    en: { subject: "Account status update", body: "The status of {{subject}} changed to: {{status}}. {{reason}}" },
   },
   "system.test": {
     ar: { subject: "رسالة اختبار", body: "هذه رسالة اختبار من إعدادات البريد في منصة {{brand}}." },

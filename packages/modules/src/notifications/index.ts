@@ -2,7 +2,8 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { AppError, notFound } from "@platform/core";
 import { currentTx, withContext, withSystem, type Tx } from "@platform/db";
 import { authUsers, notificationDeliveries, notificationTemplates, notifications } from "@platform/db/schema";
-import { getEmailTransport } from "@platform/integrations/email";
+import { getEmailTransport, type SmtpConfig } from "@platform/integrations/email";
+import { getSetting } from "../config";
 import { requireUser } from "../authz";
 import { dbCtx, type Ctx } from "../context";
 import { emit } from "../outbox";
@@ -107,6 +108,22 @@ function scrub(params: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
+let smtpCache: { at: number; cfg: SmtpConfig | null } | null = null;
+
+/** SMTP from admin settings (password encrypted at rest) when configured, else environment. Cached 60s. */
+export async function resolveEmailTransport() {
+  if (!smtpCache || Date.now() - smtpCache.at > 60_000) {
+    const s = await getSetting<{ host?: string; port?: number | string; user?: string; from?: string; secure?: boolean }>("smtp").catch(() => ({ value: null, secret: null }));
+    const v = s.value;
+    smtpCache = { at: Date.now(), cfg: v?.host && v.from ? { host: v.host, port: Number(v.port ?? 587), user: v.user || undefined, pass: s.secret ?? undefined, from: v.from, secure: Boolean(v.secure) } : null };
+  }
+  return getEmailTransport(smtpCache.cfg ?? undefined);
+}
+
+export function invalidateEmailSettings() {
+  smtpCache = null;
+}
+
 /** Send a queued delivery (worker). Safe to call repeatedly; already-sent deliveries are skipped. */
 export async function sendDelivery(deliveryId: string, opts: { maxAttempts?: number } = {}): Promise<"sent" | "skipped_no_config" | "failed" | "noop"> {
   const maxAttempts = opts.maxAttempts ?? 5;
@@ -115,7 +132,7 @@ export async function sendDelivery(deliveryId: string, opts: { maxAttempts?: num
     const [d] = await tx.select().from(notificationDeliveries).where(eq(notificationDeliveries.id, deliveryId)).limit(1).for("update");
     if (!d) throw notFound("Delivery");
     if (d.status === "sent" || d.status === "skipped_no_config") return "noop" as const;
-    const transport = getEmailTransport();
+    const transport = await resolveEmailTransport();
     if (!transport.isConfigured()) {
       await tx.update(notificationDeliveries).set({ status: "skipped_no_config", lastError: "SMTP not configured" }).where(eq(notificationDeliveries.id, d.id));
       return "skipped_no_config" as const;

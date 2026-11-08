@@ -16,3 +16,11 @@ CREATE POLICY price_index_snapshots_write ON price_index_snapshots FOR ALL USING
 ALTER TABLE price_alerts ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS price_alerts_all ON price_alerts;
 CREATE POLICY price_alerts_all ON price_alerts FOR ALL USING (app_is_system() OR user_id = app_user_id()) WITH CHECK (app_is_system() OR user_id = app_user_id());
+
+-- content pages: published pages are public; drafts and edits are system/admin (via services)
+ALTER TABLE content_pages ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS content_pages_select ON content_pages;
+DROP POLICY IF EXISTS content_pages_write ON content_pages;
+CREATE POLICY content_pages_select ON content_pages FOR SELECT USING (app_is_system() OR status = 'published');
+CREATE POLICY content_pages_write ON content_pages FOR ALL USING (app_is_system()) WITH CHECK (app_is_system());
+

@@ -206,8 +206,20 @@ export class FakeProvider implements AiProvider {
 
 let override: AiProvider | undefined;
 
-export function getAiProvider(): AiProvider {
+export interface AiConfig {
+  provider: "anthropic" | "none";
+  apiKey?: string;
+  extractionModel?: string;
+  fastModel?: string;
+}
+
+/** Test override first, then admin settings (when given), then environment. */
+export function getAiProvider(cfg?: AiConfig | null): AiProvider {
   if (override) return override;
+  if (cfg) {
+    if (cfg.provider === "anthropic" && cfg.apiKey) return new AnthropicProvider({ apiKey: cfg.apiKey, extractionModel: cfg.extractionModel || "claude-opus-5-5", fastModel: cfg.fastModel || "claude-haiku-5-5" });
+    if (cfg.provider === "none") return new DisabledProvider();
+  }
   const e = process.env;
   if (e.AI_PROVIDER === "anthropic") {
     return new AnthropicProvider({ apiKey: e.ANTHROPIC_API_KEY || undefined, extractionModel: e.AI_MODEL_EXTRACTION || "claude-opus-5-5", fastModel: e.AI_MODEL_FAST || "claude-haiku-5-5" });

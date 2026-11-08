@@ -14,6 +14,7 @@ import { expireDocuments } from "../suppliers";
 import { completeDeliveredGroups } from "../commerce";
 import { expireUnpaidOrders } from "../payments";
 import { runPriceIndex } from "../price-index";
+import { buildExport } from "../privacy";
 
 on("import.requested", async (e, enqueue) => {
   const p = e.payload as { batchId: string; userId: string; orgId: string };
@@ -52,5 +53,11 @@ registerProcessor("default", "store.expire_unpaid", async () => expireUnpaidOrde
 registerProcessor("default", "store.complete_delivered", async () => completeDeliveredGroups());
 
 registerProcessor("analytics", "price_index.run", async () => runPriceIndex());
+
+on("privacy.export_requested", async (e, enqueue) => {
+  const p = e.payload as { requestId: string };
+  await enqueue("default", "privacy.export", { requestId: p.requestId }, `privacy-export:${p.requestId}`);
+});
+registerProcessor("default", "privacy.export", async (d) => buildExport(String(d.requestId)));
 
 export const WIRED = true;

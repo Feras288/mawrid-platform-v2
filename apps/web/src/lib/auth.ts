@@ -5,7 +5,8 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
 import { twoFactor } from "better-auth/plugins";
 import { uuidv7 } from "@platform/core";
-import { getDb } from "@platform/db";
+import { eq } from "drizzle-orm";
+import { getDb, withSystem } from "@platform/db";
 import { authAccounts, authRateLimits, authSessions, authTwoFactors, authUsers, authVerifications } from "@platform/db/schema";
 import { queueEmail } from "@platform/modules/notifications";
 import { audit } from "@platform/modules/audit";
@@ -132,6 +133,11 @@ export const auth = betterAuth({
     },
     session: {
       create: {
+        // suspended or deleted accounts cannot sign in (existing sessions are revoked on suspension)
+        before: async (session) => {
+          const [u] = await withSystem((tx) => tx.select({ status: authUsers.status }).from(authUsers).where(eq(authUsers.id, session.userId)).limit(1));
+          if (!u || u.status !== "active") throw new APIError("FORBIDDEN", { message: "Account is not active", code: "ACCOUNT_INACTIVE" });
+        },
         after: async (session) => {
           await audit({ ...systemCtx(), userId: session.userId, ip: session.ipAddress ?? null, userAgent: session.userAgent ?? null }, { action: "auth.session_created", entityType: "user", entityId: session.userId, orgId: null });
         },

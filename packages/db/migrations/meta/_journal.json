@@ -57,6 +57,13 @@
       "when": 1794177232872,
       "tag": "0007_price_index",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794178437245,
+      "tag": "0008_content_pages",
+      "breakpoints": true
     }
   ]
 }

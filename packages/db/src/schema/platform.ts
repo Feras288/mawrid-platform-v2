@@ -232,3 +232,21 @@ export const dataRequests = pgTable(
   },
   (t) => [check("data_requests_kind_chk", sql`${t.kind} in ('export','deletion','correction')`)],
 );
+
+/** Versioned legal/content pages (terms, privacy, returns…). Drafts until legal review. */
+export const contentPages = pgTable(
+  "content_pages",
+  {
+    id: id(),
+    slug: text("slug").notNull(),
+    locale: text("locale").notNull(),
+    version: integer("version").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    status: text("status").notNull().default("draft"), // draft | published | archived
+    publishedAt: ts("published_at"),
+    updatedBy: uuid("updated_by"),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("content_pages_uq").on(t.slug, t.locale, t.version), check("content_pages_status_chk", sql`${t.status} in ('draft','published','archived')`)],
+);
