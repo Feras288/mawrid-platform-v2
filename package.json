@@ -19,7 +19,7 @@
     "infra:down": "docker compose -f infra/docker-compose.dev.yml down",
     "db:generate": "pnpm --filter @platform/db generate",
     "db:migrate": "pnpm --filter @platform/db migrate",
-    "db:seed": "pnpm --filter @platform/db seed",
+    "db:seed": "tsx scripts/seed.ts",
     "db:reset": "pnpm --filter @platform/db reset"
   },
   "devDependencies": {
@@ -38,6 +38,9 @@
     "@platform/integrations": "workspace:*",
     "pg": "8.23.1",
     "@types/pg": "8.23.1",
-    "eslint-plugin-react-hooks": "7.1.1"
+    "eslint-plugin-react-hooks": "7.1.1",
+    "better-auth": "1.7.18",
+    "drizzle-orm": "0.45.4",
+    "@aws-sdk/client-s3": "3.1164.0"
   }
 }

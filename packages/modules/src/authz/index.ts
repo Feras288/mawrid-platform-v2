@@ -39,7 +39,7 @@ export function authorizeAdmin(ctx: Ctx, perm: Permission = "admin.access", opts
   if (ctx.mode === "system") return;
   requireUser(ctx);
   if (!ctx.isPlatformAdmin || !ctx.permissions.has(perm)) throw new AppError("FORBIDDEN", "Platform admin only", { key: "forbidden" });
-  if (opts.requireMfa !== false && !ctx.mfaEnabled && process.env.APP_ENV !== "test" && process.env.ADMIN_MFA_OPTIONAL !== "true") {
+  if (opts.requireMfa !== false && !ctx.mfaEnabled && process.env.APP_ENV !== "test" && !(process.env.ADMIN_MFA_OPTIONAL === "true" && process.env.APP_ENV === "development")) {
     throw new AppError("FORBIDDEN", "Two-factor authentication is required for platform administration", { key: "mfa_required" });
   }
 }

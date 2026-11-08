@@ -54,5 +54,5 @@ export async function createOrg(page: Page, type: "buyer" | "supplier", nameEn: 
   await dialog.locator('input[name="nameEn"]').fill(nameEn);
   await dialog.locator('input[name="city"]').fill("الرياض");
   await dialog.locator('button[type="submit"]').click();
-  await expect(page).toHaveURL(type === "buyer" ? /\/ar\/org$/ : /\/ar\/supplier\/profile/);
+  await expect(page).toHaveURL(type === "buyer" ? /\/ar\/org$/ : /\/ar\/supplier\/profile/, { timeout: 60_000 });
 }

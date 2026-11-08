@@ -7,6 +7,7 @@ import { useFormStatus } from "react-dom";
 import { toast } from "sonner";
 import type { ActionError, ActionResult } from "@/lib/action";
 import { cn } from "@/lib/utils";
+import { ModalContext } from "./overlay";
 import { Button, type ButtonProps, Input, Label, Select, Textarea } from "./primitives";
 
 const ErrorCtx = React.createContext<ActionError | null>(null);
@@ -40,12 +41,14 @@ export function ActionForm<T>({ action, successMessage, redirectTo, refresh = tr
   const router = useRouter();
   const errMsg = useErrorMessage();
   const ref = React.useRef<HTMLFormElement>(null);
+  const modal = React.useContext(ModalContext);
   const [state, formAction] = React.useActionState<ActionResult<T> | null, FormData>(async (_prev, fd) => {
     const r = await action(fd);
     if (r.ok) {
       if (successMessage) toast.success(successMessage);
       onSuccess?.(r.data);
       if (resetOnSuccess) ref.current?.reset();
+      modal?.close();
       const to = typeof redirectTo === "function" ? redirectTo(r.data) : redirectTo;
       if (to) router.push(to);
       else if (refresh) router.refresh();

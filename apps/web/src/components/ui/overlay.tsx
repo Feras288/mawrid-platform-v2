@@ -5,6 +5,9 @@ import { Dialog as D, DropdownMenu as DM, Tabs as T } from "radix-ui";
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
+/** Lets content inside a Modal (e.g. ActionForm) close it after a successful action. */
+export const ModalContext = React.createContext<{ close: () => void } | null>(null);
+
 export function Modal({
   trigger,
   title,
@@ -24,8 +27,14 @@ export function Modal({
   wide?: boolean;
   closeLabel?: string;
 }) {
+  const [innerOpen, setInnerOpen] = React.useState(false);
+  const isOpen = open ?? innerOpen;
+  const setOpen = (o: boolean) => {
+    if (open === undefined) setInnerOpen(o);
+    onOpenChange?.(o);
+  };
   return (
-    <D.Root open={open} onOpenChange={onOpenChange}>
+    <D.Root open={isOpen} onOpenChange={setOpen}>
       {trigger ? <D.Trigger asChild>{trigger}</D.Trigger> : null}
       <D.Portal>
         <D.Overlay className="fixed inset-0 z-40 bg-ink-900/40 data-[state=open]:animate-in" />
@@ -44,7 +53,7 @@ export function Modal({
               <X className="size-5" />
             </D.Close>
           </div>
-          {children}
+          <ModalContext.Provider value={{ close: () => setOpen(false) }}>{children}</ModalContext.Provider>
         </D.Content>
       </D.Portal>
     </D.Root>

@@ -1,11 +1,11 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { fileTypeFromBuffer } from "file-type";
 import { AppError, forbidden, notFound, sha256, uuidv7 } from "@platform/core";
-import { withContext, type Tx } from "@platform/db";
+import { withContext, withSystem, type Tx } from "@platform/db";
 import { files } from "@platform/db/schema";
 import { getStorage } from "@platform/integrations/storage";
 import { audit } from "../audit";
-import { requireUser } from "../authz";
+import { authorizeAdmin, requireUser } from "../authz";
 import { dbCtx, type Ctx } from "../context";
 
 export type FileOwnerType =
@@ -187,5 +187,19 @@ export async function softDeleteFile(ctx: Ctx, fileId: string) {
     const rows = await tx.update(files).set({ deletedAt: new Date(), status: "deleted" }).where(eq(files.id, fileId)).returning({ id: files.id });
     if (!rows.length) throw notFound("File");
     await audit(ctx, { action: "file.deleted", entityType: "file", entityId: fileId }, tx);
+  });
+}
+
+/**
+ * Platform review access to supplier verification documents. Explicit policy: only owner type
+ * `supplier_document`, admin permission required, every access audited.
+ */
+export async function getSupplierDocumentUrlForAdmin(ctx: Ctx, fileId: string) {
+  authorizeAdmin(ctx, "admin.suppliers.review");
+  return withSystem(async (tx) => {
+    const [f] = await tx.select().from(files).where(and(eq(files.id, fileId), eq(files.ownerType, "supplier_document"), isNull(files.deletedAt))).limit(1);
+    if (!f) throw notFound("File");
+    await audit(ctx, { action: "admin.supplier_document_viewed", entityType: "file", entityId: f.id, orgId: f.orgId }, tx);
+    return getStorage().signedDownloadUrl(f.storageKey, { fileName: f.originalName, contentType: f.mimeType, ttlSeconds: 120, inline: true });
   });
 }
