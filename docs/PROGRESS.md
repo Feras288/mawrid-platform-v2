@@ -2,7 +2,7 @@
 
 Last updated: 2026-11-08
 
-## Current phase: 4 — RFQ & Quotations (in progress)
+## Current phase: 6 — Store & payments (starting)
 
 | Phase | Status |
 |---|---|
@@ -10,9 +10,9 @@ Last updated: 2026-11-08
 | 1 Foundation | Done (see Phase 1 notes) |
 | 2 Suppliers & Catalog | Done |
 | 3 Projects & BOQ | Done |
-| 4 RFQ & Quotations | In progress |
-| 5 Approvals & PO | Pending |
-| 6 Store | Pending |
+| 4 RFQ & Quotations | Done |
+| 5 Approvals & PO | Done |
+| 6 Store | In progress |
 | 7 Analytics & Price Index | Pending |
 | 8 Admin & Integrations | Pending |
 | 9 Integration hardening | Pending |
@@ -46,13 +46,28 @@ optional OCR), normalization (units, Arabic text, 70+ attribute rules, category 
 revisions, candidate confirmation, bulk approve), approval into immutable versions, column-mapping
 fallback, manual BOQs. AI usage logging. Golden-set accuracy tests.
 
-## Phase 4 tasks
-- [ ] RFQ schema (rfqs, items, recipients + events, attachments, events) + RLS bridge for suppliers
-- [ ] RFQ creation from approved BOQ version / manual lines; supplier suggestions
-- [ ] Submit → approval-to-send (policy hook, Phase 5 engine) → send jobs (email + in-app), retries, delivery log
-- [ ] Supplier portal: inbox, response (prices, partial qty, lead time, alternatives, exceptions, validity, charges, attachments), drafts, revisions
-- [ ] Comparison matrix (filters, sort, highlights) + evaluation records
-- [ ] Tests: isolation (competitor quotes), idempotent sending, matrix math; E2E paths 5–8
+## Phases 4–5 — done
+RFQ lifecycle (11 states, guarded), creation from approved BOQ version or manual lines, supplier
+suggestions with reasons, approval-to-send via policy engine, per-recipient send jobs with retries and
+delivery log, cancellation/revision rounds/auto-close. Supplier inbox + quotation versions (draft,
+submit, revise, withdraw, decline, alternatives, exceptions, attachments). Comparison matrix
+(lowest price, coverage, spread, technical evaluation, sorting), per-line award with history and
+invalidation on change. Approval engine (policies by operation/amount/project, sequential + parallel
+steps, SoD, subject-hash invalidation). PO creation split per supplier (idempotent + unique), approval
+→ issue, bilingual PDFs with verification QR, acknowledge/shipments/receipts (partial), delays,
+completion, public verification page. UI for all buyer/supplier screens.
+Known gaps: E2E runs the English UI only for paths 5–12 (Arabic/mobile in Phase 9).
+
+## Phase 6 tasks
+- [ ] Schema: addresses, carts/cart_items, wishlists, shipping zones/rates, orders/order_groups/order_lines/order_charges,
+      payment_intents/attempts/webhook_events, refunds, returns, ledger_entries (no payouts) + RLS
+- [ ] Store pages: home, category, search/filter, product page with supplier offers, wishlist
+- [ ] Multi-vendor cart with revalidation (price/stock/MOQ), shipping per supplier group, VAT
+- [ ] Checkout (idempotent), stock reservation, payment provider abstraction: test provider (non-prod only),
+      Moyasar adapter (sandbox; live = Integration Pending), bank transfer; signed webhooks
+- [ ] Order lifecycle per supplier group; supplier order handling; cancellations, returns, refunds
+- [ ] Settlement ledger entries (commission/supplier payable separated); payouts flag locked
+- [ ] Account pages: orders, wishlist, addresses; tests (unit charges, integration webhooks/idempotency, E2E path 13)
 
 ## Log
 - 2026-11-08: Plan approved; repository initialized; documentation set created.
@@ -60,11 +75,4 @@ fallback, manual BOQs. AI usage logging. Golden-set accuracy tests.
 - 2026-11-08: Phase 2 complete — tests: unit 37, integration 30, E2E 7 (all passing).
 - 2026-11-08: Phase 3 complete — tests: unit 52, integration 39, E2E 8 (all passing).
 
-### 2026-11-08 — Phase 4–5 UI (in progress)
-- Done (typecheck + lint clean, NOT yet browser/E2E verified): RFQ list/detail/compare pages, approvals inbox/detail,
-  approval policies, buyer & supplier PO list/detail, supplier RFQ inbox + quotation form, public `/verify/po/[code]`.
-  Client components: `components/procurement/{rfq-client,compare-client,approval-client,po-client,po-view,status}`,
-  `components/supplier/quote-form.tsx`. Approval `getRequest` now returns `subjectRef` for linking.
-- Next: E2E `apps/web/e2e/procurement.spec.ts` (buyer RFQ → seed supplier quote → close → award → PO → ack/ship → receipt → close;
-  seed supplier must open its org via /account/organizations "Open"; close-submissions uses window.confirm),
-  then update RTM/TEST_REPORT, commit, then Phase 6.
+- 2026-11-09: Phases 4–5 complete (RFQ, quotations, comparison/award, approvals, POs, fulfilment, verification page) — tests: unit 52, integration 42, E2E 9 (all passing).

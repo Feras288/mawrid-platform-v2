@@ -18,6 +18,10 @@ Results are recorded from actual runs only (date, command, outcome). No result i
 | 2026-11-08 | Integration (Phase 3) | `pnpm test:integration` | 39/39 passed | + projects visibility, XLSX/PDF/CSV pipeline, approval & versions, AI policy/budget/kill-switch with fake provider, BOQ RLS |
 | 2026-11-08 | E2E (Phase 3) | `playwright test e2e/boq.spec.ts` | 1/1 passed | critical paths 3–4 (project → upload → worker extraction → edit → approve lines → approve BOQ) |
 
+| 2026-11-09 | Unit (Phases 4–5) | `pnpm test` | 52/52 passed | unchanged unit scope |
+| 2026-11-09 | Integration (Phases 4–5) | `pnpm test:integration` | 42/42 passed | + full B2B cycle (RFQ→quotes→comparison→award approval w/ SoD & sequential steps→PO split→partial shipments/receipts), email failure retry, award invalidation on change |
+| 2026-11-09 | E2E (Phases 4–5) | `playwright test` | 9/9 passed | + critical paths 5–12 in English UI (manual RFQ → seed supplier quotation → close → compare → per-line award → auto-approval → PO issue + AR/EN PDFs → acknowledge → partial + full shipment → receipt → close; verify page) |
+
 ## Defects found by tests and fixed
 - Empty `<select>` value failed optional enum validation (org creation) → blank→undefined preprocessing.
 - Post-action navigation used non-locale router → 404; switched to next-intl router.
@@ -29,3 +33,6 @@ Results are recorded from actual runs only (date, command, outcome). No result i
 - Modals stayed open after successful submit (page aria-hidden) → forms close their modal on success.
 - Arabic unit words not matched (JS `` ASCII-only) → attribute accuracy 91.9% → normalized to Latin tokens → ≥95%.
 - Dotted next-intl message keys crashed rendering → keys renamed; catalog parity test added.
+- `sendDelivery` rethrew inside the transaction so attempt/failure records were rolled back → persisted, then rethrown after commit (procurement.int).
+- Dual-button forms (save vs submit quotation, approve vs reject) set intent via state in onClick, racing the submit → submitter `name`/`value` used instead.
+- E2E located POs by number; numbers are per buyer org so a supplier sees duplicates from different buyers → navigate by id (list shows buyer name).
