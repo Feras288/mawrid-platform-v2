@@ -52,11 +52,24 @@ export class AppError extends Error {
 
 export const isAppError = (e: unknown): e is AppError => e instanceof AppError;
 
+/** Helpers accept an optional `key` inside details to set a specific i18n message key. */
+function split(details?: Record<string, unknown>): { key?: string; details?: Record<string, unknown> } {
+  if (!details) return {};
+  const { key, ...rest } = details;
+  return { key: typeof key === "string" ? key : undefined, details: Object.keys(rest).length ? rest : undefined };
+}
+
 export const notFound = (what: string) => new AppError("NOT_FOUND", `${what} not found`, { key: "not_found" });
 export const forbidden = (why = "Forbidden") => new AppError("FORBIDDEN", why, { key: "forbidden" });
-export const invalidState = (msg: string, details?: Record<string, unknown>) =>
-  new AppError("INVALID_STATE", msg, { key: "invalid_state", details });
-export const conflict = (msg: string, details?: Record<string, unknown>) =>
-  new AppError("CONFLICT", msg, { key: "conflict", details });
-export const validation = (msg: string, details?: Record<string, unknown>) =>
-  new AppError("VALIDATION", msg, { key: "validation", details });
+export const invalidState = (msg: string, details?: Record<string, unknown>) => {
+  const s = split(details);
+  return new AppError("INVALID_STATE", msg, { key: s.key ?? "invalid_state", details: s.details });
+};
+export const conflict = (msg: string, details?: Record<string, unknown>) => {
+  const s = split(details);
+  return new AppError("CONFLICT", msg, { key: s.key ?? "conflict", details: s.details });
+};
+export const validation = (msg: string, details?: Record<string, unknown>) => {
+  const s = split(details);
+  return new AppError("VALIDATION", msg, { key: s.key ?? "validation", details: s.details });
+};

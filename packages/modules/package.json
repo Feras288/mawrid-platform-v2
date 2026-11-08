@@ -6,13 +6,20 @@
   "exports": {
     "./*": "./src/*/index.ts"
   },
-  "scripts": { "typecheck": "tsc -p tsconfig.json" },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
   "dependencies": {
     "@platform/core": "workspace:*",
     "@platform/db": "workspace:*",
     "@platform/integrations": "workspace:*",
     "drizzle-orm": "0.45.4",
     "file-type": "22.3.0",
-    "zod": "4.6.7"
+    "zod": "4.6.7",
+    "exceljs": "4.4.0",
+    "papaparse": "5.7.0"
+  },
+  "devDependencies": {
+    "@types/papaparse": "5.5.2"
   }
 }

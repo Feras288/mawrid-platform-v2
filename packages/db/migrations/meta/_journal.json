@@ -15,6 +15,13 @@
       "when": 1794153653533,
       "tag": "0001_auth_two_factor_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794154518072,
+      "tag": "0002_suppliers_catalog",
+      "breakpoints": true
     }
   ]
 }

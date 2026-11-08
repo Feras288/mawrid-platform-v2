@@ -7,6 +7,7 @@ import { handleEvent, type QueueName } from "@platform/modules/events";
 import { getProcessor, QUEUES, recordJob } from "@platform/modules/jobs";
 import { dispatchOutbox } from "@platform/modules/outbox";
 import { syncSystemRoles } from "@platform/modules/organizations";
+import { syncReferenceData } from "@platform/modules/reference";
 import "./register";
 
 process.env.SERVICE_NAME ??= "worker";
@@ -63,6 +64,7 @@ const health = createServer(async (_req, res) => {
 
 async function main() {
   await syncSystemRoles();
+  await syncReferenceData();
   try {
     const { getStorage } = await import("@platform/integrations/storage");
     await getStorage().ensureBucket();

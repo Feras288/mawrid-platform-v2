@@ -6,4 +6,5 @@ export async function scheduleRecurring(queues: Map<QueueName, Queue>): Promise<
   const tz = "Asia/Riyadh";
   const def = queues.get("default")!;
   await def.upsertJobScheduler("cleanup-idempotency", { pattern: "15 3 * * *", tz }, { name: "cleanup", data: {} });
+  await def.upsertJobScheduler("expire-supplier-documents", { pattern: "0 2 * * *", tz }, { name: "suppliers.expire_documents", data: {} });
 }

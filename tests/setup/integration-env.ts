@@ -14,6 +14,8 @@ beforeAll(async () => {
   setEmailTransport(new MemoryTransport());
   const { syncSystemRoles } = await import("@platform/modules/organizations");
   await syncSystemRoles();
+  const { syncReferenceData } = await import("@platform/modules/reference");
+  await syncReferenceData();
 });
 
 afterAll(async () => {
