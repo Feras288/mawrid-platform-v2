@@ -12,3 +12,12 @@ allowBuilds:
   tesseract.js: false
 minimumReleaseAgeExclude:
   - nodemailer@10.4.0
+# Security overrides (pnpm audit). Each is narrowly scoped (parent package or affected version range); no upstream fix exists yet.
+# Remove each entry once the parent package ships a patched dependency range.
+overrides:
+  # dev-only (drizzle-kit legacy esm-loader): GHSA-67mh-4wv8-2f99
+  "@esbuild-kit/core-utils>esbuild": 0.25.12
+  # runtime (xlsx export): GHSA-w5hq-g745-h8pq; exceljs only uses v4() without a buffer argument
+  "exceljs>uuid": 11.1.1
+  # dev-only (eslint / typescript-eslint file matching): GHSA-g3hv-75wg-m249
+  "minimatch@>=7.0.0 <11.0.1": 11.0.5

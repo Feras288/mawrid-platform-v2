@@ -62,7 +62,7 @@ jobs:
       - name: Integration tests
         run: pnpm test:integration
       - name: Dependency audit (high+)
-        run: pnpm audit --audit-level high || echo "::warning::pnpm audit reported issues"
+        run: pnpm audit --audit-level high
       - name: Build
         run: pnpm build
         env:
