@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, check, index, integer, jsonb, numeric, pgTable, primaryKey, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, check, index, integer, jsonb, numeric, pgTable, pgView, primaryKey, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { amount, createdAt, id, qty, ts, updatedAt } from "./_common";
 import { authUsers } from "./auth";
 import { brands, categories, canonicalProducts, units, type AttrValues } from "./catalog";
@@ -156,14 +156,20 @@ export const supplierProducts = pgTable(
     status: text("status").notNull().default("draft"), // draft | active | inactive
     isPublished: boolean("is_published").notNull().default(false), // visible in store
     normalizedName: text("normalized_name").notNull(),
+    /** lowest current retail price ex-VAT (tier ≤ 1), trigger-maintained — store filtering/sorting only */
+    storePrice: qty("store_price"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
     uniqueIndex("supplier_products_sku_uq").on(t.orgId, t.sku),
+    index("supplier_products_store_price_idx").on(t.storePrice).where(sql`${t.isPublished} and ${t.status} = 'active' and ${t.storePrice} is not null`),
     index("supplier_products_canonical_idx").on(t.canonicalProductId),
     index("supplier_products_category_idx").on(t.categoryId, t.status),
     index("supplier_products_name_trgm_idx").using("gin", sql`${t.normalizedName} gin_trgm_ops`),
+    index("supplier_products_sku_trgm_idx").using("gin", sql`${t.sku} gin_trgm_ops`),
+    index("supplier_products_brand_lower_idx").on(sql`lower(coalesce(${t.brandName}, ''))`),
+    index("supplier_products_store_newest_idx").on(t.createdAt.desc(), t.id).where(sql`${t.isPublished} and ${t.status} = 'active' and ${t.storePrice} is not null`),
     index("supplier_products_store_idx").on(t.isPublished, t.status),
     check("supplier_products_status_chk", sql`${t.status} in ('draft','active','inactive')`),
     check("supplier_products_match_chk", sql`${t.matchStatus} in ('unmatched','suggested','confirmed','rejected')`),
@@ -298,3 +304,17 @@ export const importBatchRows = pgTable(
   },
   (t) => [index("import_rows_batch_idx").on(t.batchId, t.rowNumber)],
 );
+
+/** Owner-privileged public catalog view (see sql/post/095_store_price.sql). Read-only. */
+export const storeCatalog = pgView("store_catalog", {
+  id: uuid("id").notNull(),
+  orgId: uuid("org_id").notNull(),
+  sku: text("sku").notNull(),
+  categoryId: uuid("category_id").notNull(),
+  brandName: text("brand_name"),
+  nameAr: text("name_ar").notNull(),
+  nameEn: text("name_en").notNull(),
+  normalizedName: text("normalized_name").notNull(),
+  storePrice: qty("store_price"),
+  createdAt: ts("created_at").notNull(),
+}).existing();

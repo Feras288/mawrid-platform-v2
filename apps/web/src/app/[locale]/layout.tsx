@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { hasLocale, NextIntlClientProvider } from "next-intl";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { Toaster } from "sonner";
+import { brandName } from "@platform/core";
 import { routing } from "@/i18n/routing";
 import "../globals.css";
 
@@ -17,7 +18,7 @@ export function generateStaticParams() {
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "meta" });
-  const brand = locale === "ar" ? (process.env.BRAND_NAME_AR ?? "مَوْرِد") : (process.env.BRAND_NAME_EN ?? "Mawrid");
+  const brand = brandName(locale === "ar" ? "ar" : "en");
   return { title: { default: brand, template: `%s · ${brand}` }, description: t("description") };
 }
 

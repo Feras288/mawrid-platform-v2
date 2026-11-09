@@ -119,6 +119,15 @@ describe("BOQ pipeline (rule engine, no AI)", () => {
     expect(activity.map((a) => a.action)).toEqual(expect.arrayContaining(["boq.uploaded", "boq.approved"]));
   });
 
+  it("concurrent processing of the same document runs once (no duplicate lines)", async () => {
+    const { ctx } = await setupOrg("buyer");
+    const doc = await uploadBoq(ctx, { title: "Race" }, { buffer: await xlsx(goldenRows("en")), fileName: "race.xlsx" });
+    const results = await Promise.all([processBoq(doc.id), processBoq(doc.id)]);
+    expect(results.map((r) => r.status).sort()).toEqual(["in_progress", "needs_review"]);
+    const items = await listItems(ctx, doc.id, { pageSize: 500 });
+    expect(items.total).toBe(GOLDEN_LINES.length);
+  });
+
   it("extracts a text PDF", async () => {
     const { ctx } = await setupOrg("buyer");
     const doc = await uploadBoq(ctx, { title: "PDF" }, { buffer: await textPdf(), fileName: "boq.pdf" });

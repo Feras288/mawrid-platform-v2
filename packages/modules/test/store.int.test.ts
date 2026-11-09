@@ -227,6 +227,19 @@ describe("store: catalog, cart, checkout, payments, fulfilment, returns", () => 
     expect(o3.refunds[0]!.reason).toBe("late_payment");
   });
 
+  it("search never shows products of unapproved suppliers, even if published and priced", async () => {
+    const sup = await approvedSupplier();
+    const p = await product(sup, { sku: `HID-${randomToken(4)}`, retail: "12.00", stock: "5" });
+    const tag = p.sku;
+    expect((await searchProducts(publicCtx("ar"), { q: tag })).items.map((i) => i.id)).toEqual([p.id]);
+    await withSystem(async (tx) => {
+      await tx.execute(sql`select set_config('app.mode','system',true)`);
+      await tx.execute(sql`update supplier_profiles set status = 'suspended' where org_id = ${sup.org.id}`);
+    });
+    expect((await searchProducts(publicCtx("ar"), { q: tag })).total).toBe(0);
+    expect(await getStoreProduct(publicCtx("ar"), p.id)).toBeNull();
+  });
+
   it("checkout rejects stale carts and missing shipping; respects the checkout flag", async () => {
     const sup = await approvedSupplier();
     const p = await product(sup, { sku: `S-${randomToken(4)}`, retail: "20.00", stock: "3" });

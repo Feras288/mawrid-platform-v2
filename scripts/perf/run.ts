@@ -28,7 +28,7 @@ const { buildXlsx } = await import("@platform/modules/spreadsheet");
 const { uploadBoq, processBoq } = await import("@platform/modules/boq");
 const { comparison } = await import("@platform/modules/quotations");
 const { generatePoDocuments } = await import("@platform/modules/purchase-orders");
-const { ensureBucket } = await import("@platform/integrations/storage");
+const { getStorage } = await import("@platform/integrations/storage");
 
 const N = Number(process.env.PERF_PRODUCTS ?? 100_000);
 const BASE = process.env.PERF_BASE_URL;
@@ -43,7 +43,7 @@ const time = async <T>(fn: () => Promise<T>) => {
   return { ms: performance.now() - t, r };
 };
 
-await ensureBucket().catch(() => undefined);
+await getStorage().ensureBucket().catch(() => undefined);
 
 // ---------------------------------------------------------------- fixtures: one test user, buyer org, 8 approved suppliers
 const userId = uuidv7();
@@ -54,7 +54,10 @@ const buyerCtx = await resolveContext({ userId, orgId: buyer.id });
 const suppliers: string[] = [];
 for (let i = 0; i < 8; i++) {
   const s = await createOrganization(base, { type: "supplier", nameAr: `مورد أداء ${i}`, nameEn: `Perf Supplier ${i} ${randomToken(3)}` }, { isTestData: true });
-  await withSystem((tx) => tx.update(schema.supplierProfiles).set({ status: "approved" }).where(eq(schema.supplierProfiles.orgId, s.id)));
+  await withSystem(async (tx) => {
+    await tx.execute(sql`insert into supplier_profiles (org_id, status) values (${s.id}, 'new') on conflict (org_id) do nothing`);
+    await tx.execute(sql`update supplier_profiles set status = 'approved' where org_id = ${s.id}`);
+  });
   suppliers.push(s.id);
 }
 const [cat] = await withSystem((tx) => tx.select().from(schema.categories).where(eq(schema.categories.slug, "pipes")).limit(1));
@@ -120,8 +123,18 @@ const kinds = [
 ];
 const rows = [["البند", "الوصف", "الوحدة", "الكمية"], ...Array.from({ length: 2000 }, (_, i) => [String(i + 1), kinds[i % 4]!(i), units[i % 4]!, String(10 + (i % 90))])];
 const xlsx = await buildXlsx([{ name: "BOQ", rows }]);
-const doc = await uploadBoq(buyerCtx, { title: "Perf BOQ 2000" }, { buffer: Buffer.from(xlsx), fileName: "perf-boq.xlsx" });
-const boq = await time(() => processBoq(doc.id));
+const boq = await time(async () => {
+  const d = await uploadBoq(buyerCtx, { title: "Perf BOQ 2000" }, { buffer: Buffer.from(xlsx), fileName: "perf-boq.xlsx" });
+  const done = ["needs_review", "approved", "failed", "needs_column_mapping", "needs_manual_entry"];
+  for (let i = 0; i < 240; i++) {
+    const [r] = await withSystem((tx) => tx.select({ status: schema.boqDocuments.status }).from(schema.boqDocuments).where(eq(schema.boqDocuments.id, d.id)));
+    if (done.includes(r!.status)) return d;
+    if (i === 10 && r!.status === "received") await processBoq(d.id); // no worker running
+    await new Promise((res) => setTimeout(res, 500));
+  }
+  return d;
+});
+const doc = boq.r;
 const [boqRow] = await withSystem((tx) => tx.select({ status: schema.boqDocuments.status }).from(schema.boqDocuments).where(eq(schema.boqDocuments.id, doc.id)));
 const lines = await withSystem((tx) => tx.execute(sql`select count(*)::int as n from boq_items where document_id = ${doc.id}`));
 results.push({ name: "BOQ 2,000 lines: extract + normalize + match (no AI)", target: "< 60 s", value: `${(boq.ms / 1000).toFixed(1)} s · ${(lines.rows[0] as { n: number }).n} lines · status ${boqRow?.status}`, pass: boq.ms < 60_000 });

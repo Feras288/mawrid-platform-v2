@@ -198,7 +198,16 @@ export async function processBoq(documentId: string): Promise<{ status: string; 
   const unitRows = await withSystem((tx) => tx.select({ code: units.code, aliases: units.aliases, dimension: units.dimension }).from(units));
   const unitAliases = new Set(unitRows.flatMap((u) => [u.code, ...u.aliases.map((a) => a.toLowerCase())]));
 
-  await setStatus(documentId, "extracting", { error: null, statusDetail: null });
+  // Claim the document atomically: concurrent runs (worker retry + manual reprocess) must not both
+  // process it. A claim older than 30 minutes is considered stale (crashed worker) and can be taken over.
+  const claimed = await withSystem((tx) =>
+    tx
+      .update(boqDocuments)
+      .set({ status: "extracting", error: null, statusDetail: null })
+      .where(and(eq(boqDocuments.id, documentId), sql`(${boqDocuments.status} not in ('extracting','normalizing','matching') or ${boqDocuments.updatedAt} < now() - interval '30 minutes')`))
+      .returning({ id: boqDocuments.id }),
+  );
+  if (!claimed.length) return { status: "in_progress", lines: 0 };
   const runId = await startRun(documentId, doc.orgId, "extract");
   let ex: Extracted;
   try {

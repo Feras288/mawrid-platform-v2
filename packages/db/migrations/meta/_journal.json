@@ -64,6 +64,27 @@
       "when": 1794178437245,
       "tag": "0008_content_pages",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794181077058,
+      "tag": "0009_store_price",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794189390358,
+      "tag": "0010_sku_trgm",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794189448348,
+      "tag": "0011_store_search_idx",
+      "breakpoints": true
     }
   ]
 }

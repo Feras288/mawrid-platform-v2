@@ -142,3 +142,12 @@ distinct buyers) and no supplier above 60% of observations; floors cannot be con
 snapshots store counts and the reason but no prices. Raw observations are system-only. Snapshots are
 daily over a rolling 90-day window. Quotes count only while current and submitted; awards only while
 current and approved. National scope only in v1.
+
+## ADR-024 — Storefront search path (2026-11-09)
+Under RLS, PostgreSQL does not evaluate non-leakproof operators (ILIKE, similarity) before policy quals, so
+trigram indexes are unusable for searches run as `app_user`. Storefront search therefore selects ids and
+counts through `store_catalog`, an owner-privileged view that encodes the public visibility rule
+(published, active, priced, supplier approved), and then reads the rows under the viewer's RLS context.
+Listing price for filter/sort is a trigger-maintained `store_price` (refreshed daily for validity windows);
+the price shown is always resolved per viewer (enterprise / contract / regional). Measured p95 251 ms
+(service) / 328 ms (HTTP) at 100k products.

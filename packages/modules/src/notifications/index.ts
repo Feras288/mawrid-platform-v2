@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { AppError, notFound } from "@platform/core";
+import { AppError, brandName, notFound } from "@platform/core";
 import { currentTx, withContext, withSystem, type Tx } from "@platform/db";
 import { authUsers, notificationDeliveries, notificationTemplates, notifications } from "@platform/db/schema";
 import { getEmailTransport, type SmtpConfig } from "@platform/integrations/email";
@@ -23,7 +23,7 @@ export function interpolate(tpl: string, params: Params, html: boolean): string 
   });
 }
 
-const brand = (locale: "ar" | "en") => (locale === "ar" ? process.env.BRAND_NAME_AR ?? "مَوْرِد" : process.env.BRAND_NAME_EN ?? "Mawrid");
+const brand = (locale: "ar" | "en") => brandName(locale);
 
 async function templateFor(key: TemplateKey, locale: "ar" | "en"): Promise<TemplateDef> {
   const base = TEMPLATES[key]?.[locale];

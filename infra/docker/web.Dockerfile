@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # Web (Next.js standalone). Build context: repository root.
 FROM node:24-bookworm-slim AS base
-ENV CI=true NEXT_TELEMETRY_DISABLED=1
+ENV CI=true NEXT_TELEMETRY_DISABLED=1 npm_config_fetch_timeout=300000 npm_config_fetch_retries=5
 RUN npm install -g pnpm@11.18.0
 WORKDIR /repo
 
@@ -13,7 +13,7 @@ COPY packages/core/package.json packages/core/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/integrations/package.json packages/integrations/package.json
 COPY packages/modules/package.json packages/modules/package.json
-RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile --config.fetch-timeout=300000 --config.fetch-retries=5 --config.network-concurrency=8
+RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile --filter "@platform/web..."
 
 FROM deps AS build
 COPY . .

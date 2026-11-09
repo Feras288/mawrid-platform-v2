@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
-import { AppError, dec, documentTotals, hashObject, invalidState, lineTotals, notFound, randomToken, toDb, validation } from "@platform/core";
+import { AppError, brandName, dec, documentTotals, hashObject, invalidState, lineTotals, notFound, randomToken, toDb, validation } from "@platform/core";
 import { parseLocaleNumber } from "@platform/core/text";
 import { nextDocNumber, pageParams, withContext, withSystem, type Tx } from "@platform/db";
 import {
@@ -253,7 +253,7 @@ export async function generatePoDocuments(poId: string) {
   const fileIds: Record<"ar" | "en", string> = { ar: "", en: "" };
   for (const locale of ["ar", "en"] as const) {
     const pdfData: PoPdfData = {
-      brand: locale === "ar" ? (process.env.BRAND_NAME_AR ?? "مَوْرِد") : (process.env.BRAND_NAME_EN ?? "Mawrid"),
+      brand: brandName(locale),
       code: po.code,
       issuedAt: po.issuedAt ?? new Date(),
       status: po.approvalStatus,

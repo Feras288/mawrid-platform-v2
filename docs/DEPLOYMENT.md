@@ -86,5 +86,5 @@ on every deploy. New schema changes: `pnpm db:generate --name <change>` and revi
 | Worker bundle (`node build.mjs`) + hoisted `pnpm deploy` | Passed; bundled worker started, health `{"ok":true}` |
 | Bundled `migrate` | Passed (idempotent on dev DB; re-applied RLS on a restored DB) |
 | Backup → restore drill | Passed |
-| Docker images | See TEST_REPORT (built locally where host resources allowed) |
+| Docker images | **Not verified locally**: three build attempts failed inside the Docker VM on npm registry download timeouts for large binaries (`next`, `@next/swc-linux-x64-gnu`, `@turbo/linux-64`) — network, not Dockerfile errors. Every step the images run (filtered install, `next build` standalone, worker bundle, hoisted `pnpm deploy`, bundled migrate) was verified natively. The CI `images` job builds both images. |
 | Staging / production deploy | Not performed (requires owner approval and infrastructure) |

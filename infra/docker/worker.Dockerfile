@@ -1,13 +1,13 @@
 # syntax=docker/dockerfile:1.7
 # Worker (BullMQ jobs, outbox, PDF via Chromium) + one-shot `node dist/migrate.js`. Context: repo root.
 FROM node:24-bookworm-slim AS base
-ENV CI=true
+ENV CI=true npm_config_fetch_timeout=300000 npm_config_fetch_retries=5
 RUN npm install -g pnpm@11.18.0
 WORKDIR /repo
 
 FROM base AS build
 COPY . .
-RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile --config.fetch-timeout=300000 --config.fetch-retries=5 --config.network-concurrency=8
+RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile --filter "@platform/worker..."
 RUN pnpm --filter @platform/worker build \
  && pnpm --filter @platform/worker deploy --prod --legacy --config.node-linker=hoisted /out
 

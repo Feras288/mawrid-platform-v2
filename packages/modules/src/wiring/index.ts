@@ -60,4 +60,10 @@ on("privacy.export_requested", async (e, enqueue) => {
 });
 registerProcessor("default", "privacy.export", async (d) => buildExport(String(d.requestId)));
 
+registerProcessor("default", "store.refresh_prices", async () => {
+  const { withSystem } = await import("@platform/db");
+  const { sql } = await import("drizzle-orm");
+  return withSystem((tx) => tx.execute(sql`select refresh_all_store_prices() as n`));
+});
+
 export const WIRED = true;

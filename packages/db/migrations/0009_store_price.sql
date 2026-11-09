@@ -1,0 +1,2 @@
+ALTER TABLE "supplier_products" ADD COLUMN "store_price" numeric(18, 4);--> statement-breakpoint
+CREATE INDEX "supplier_products_store_price_idx" ON "supplier_products" USING btree ("store_price") WHERE "supplier_products"."is_published" and "supplier_products"."status" = 'active' and "supplier_products"."store_price" is not null;

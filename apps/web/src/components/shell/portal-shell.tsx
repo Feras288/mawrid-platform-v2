@@ -1,4 +1,5 @@
 import { getLocale, getTranslations } from "next-intl/server";
+import { brandName } from "@platform/core";
 import type { Ctx } from "@platform/modules/context";
 import { listUserOrganizations } from "@platform/modules/context";
 import { unreadCount } from "@platform/modules/notifications";
@@ -17,7 +18,7 @@ export interface NavItem {
 
 export async function Brand({ className }: { className?: string }) {
   const locale = await getLocale();
-  const name = locale === "ar" ? (process.env.BRAND_NAME_AR ?? "مَوْرِد") : (process.env.BRAND_NAME_EN ?? "Mawrid");
+  const name = brandName(locale === "ar" ? "ar" : "en");
   return (
     <Link href="/" className={cn("inline-flex items-center gap-2 font-bold text-primary-800", className)}>
       <span aria-hidden className="grid size-8 place-items-center rounded-lg bg-primary-700 text-sm text-white">

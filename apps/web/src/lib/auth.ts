@@ -4,7 +4,7 @@ import { APIError, createAuthMiddleware } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
 import { twoFactor } from "better-auth/plugins";
-import { uuidv7 } from "@platform/core";
+import { brandName, uuidv7 } from "@platform/core";
 import { eq } from "drizzle-orm";
 import { getDb, withSystem } from "@platform/db";
 import { authAccounts, authRateLimits, authSessions, authTwoFactors, authUsers, authVerifications } from "@platform/db/schema";
@@ -16,7 +16,7 @@ import { POLICY_VERSIONS, recordConsent } from "@platform/modules/identity";
 const appUrl = process.env.APP_URL ?? "http://localhost:3100";
 // Scales auth rate limits (1 in production). Dev/E2E environments may raise it; never below 1.
 const rl = Math.max(1, Number(process.env.AUTH_RATE_LIMIT_MULTIPLIER ?? 1) || 1);
-const brand = process.env.BRAND_NAME_EN ?? "Mawrid";
+const brand = brandName("en");
 
 function localeOf(user: { locale?: unknown }): "ar" | "en" {
   return user.locale === "en" ? "en" : "ar";

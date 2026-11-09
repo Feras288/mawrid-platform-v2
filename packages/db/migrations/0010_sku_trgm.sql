@@ -1,0 +1,1 @@
+CREATE INDEX "supplier_products_sku_trgm_idx" ON "supplier_products" USING gin ("sku" gin_trgm_ops);

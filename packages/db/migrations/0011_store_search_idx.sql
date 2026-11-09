@@ -1,0 +1,2 @@
+CREATE INDEX "supplier_products_brand_lower_idx" ON "supplier_products" USING btree (lower(coalesce("brand_name", '')));--> statement-breakpoint
+CREATE INDEX "supplier_products_store_newest_idx" ON "supplier_products" USING btree ("created_at" DESC NULLS LAST,"id") WHERE "supplier_products"."is_published" and "supplier_products"."status" = 'active' and "supplier_products"."store_price" is not null;

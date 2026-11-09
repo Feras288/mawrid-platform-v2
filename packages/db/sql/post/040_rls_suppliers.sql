@@ -1,5 +1,10 @@
 -- Repeatable: supplier, catalog and pricing access rules.
 
+CREATE OR REPLACE FUNCTION app_approved_supplier_ids() RETURNS uuid[]
+  LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT coalesce(array_agg(org_id), '{}') FROM supplier_profiles WHERE status = 'approved'
+$$;
+
 CREATE OR REPLACE FUNCTION app_supplier_approved(p_org uuid) RETURNS boolean
   LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT EXISTS (SELECT 1 FROM supplier_profiles sp WHERE sp.org_id = p_org AND sp.status = 'approved')
@@ -91,8 +96,9 @@ CREATE POLICY supplier_categories_write ON supplier_categories FOR ALL USING (ap
 ALTER TABLE supplier_products ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS supplier_products_select ON supplier_products;
 DROP POLICY IF EXISTS supplier_products_write ON supplier_products;
+-- The approved-supplier set is computed once per query (InitPlan) instead of a function call per row.
 CREATE POLICY supplier_products_select ON supplier_products FOR SELECT USING (
-  app_is_system() OR org_id = app_org() OR (status = 'active' AND app_supplier_approved(org_id))
+  app_is_system() OR org_id = app_org() OR (status = 'active' AND org_id IN (SELECT unnest(app_approved_supplier_ids())))
 );
 CREATE POLICY supplier_products_write ON supplier_products FOR ALL USING (app_is_system() OR org_id = app_org())
   WITH CHECK (app_is_system() OR org_id = app_org());
