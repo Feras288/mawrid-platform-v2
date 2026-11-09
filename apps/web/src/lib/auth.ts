@@ -30,12 +30,22 @@ function localizeUrl(url: string, locale: "ar" | "en"): string {
   return u.toString();
 }
 
+// Resolve the database on first use: importing this module (e.g. during `next build` in a Docker stage
+// without secrets) must not require DATABASE_URL.
+const lazyDb = new Proxy({} as ReturnType<typeof getDb>, {
+  get(_target, prop) {
+    const db = getDb();
+    const value = Reflect.get(db, prop, db) as unknown;
+    return typeof value === "function" ? (value as (...a: unknown[]) => unknown).bind(db) : value;
+  },
+});
+
 export const auth = betterAuth({
   appName: brand,
   baseURL: appUrl,
   secret: process.env.AUTH_SECRET,
   trustedOrigins: [appUrl],
-  database: drizzleAdapter(getDb(), {
+  database: drizzleAdapter(lazyDb, {
     provider: "pg",
     schema: {
       user: authUsers,
