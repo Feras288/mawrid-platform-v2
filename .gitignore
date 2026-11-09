@@ -15,3 +15,8 @@ test-results/
 *.log
 .DS_Store
 /tmp/
+
+# database backups / dumps must never be committed
+infra/backups/
+*.dump
+*.dump.sha256

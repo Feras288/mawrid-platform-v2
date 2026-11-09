@@ -1,13 +1,17 @@
 -- Repeatable: supplier, catalog and pricing access rules.
+-- A supplier is publicly visible only when its profile is approved AND its organization is active
+-- (an admin suspension must hide its catalog, prices and directory entry immediately).
 
 CREATE OR REPLACE FUNCTION app_approved_supplier_ids() RETURNS uuid[]
   LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT coalesce(array_agg(org_id), '{}') FROM supplier_profiles WHERE status = 'approved'
+  SELECT coalesce(array_agg(sp.org_id), '{}') FROM supplier_profiles sp JOIN organizations o ON o.id = sp.org_id
+  WHERE sp.status = 'approved' AND o.status = 'active'
 $$;
 
 CREATE OR REPLACE FUNCTION app_supplier_approved(p_org uuid) RETURNS boolean
   LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT EXISTS (SELECT 1 FROM supplier_profiles sp WHERE sp.org_id = p_org AND sp.status = 'approved')
+  SELECT EXISTS (SELECT 1 FROM supplier_profiles sp JOIN organizations o ON o.id = sp.org_id
+                 WHERE sp.org_id = p_org AND sp.status = 'approved' AND o.status = 'active')
 $$;
 
 -- Type of the current org ('buyer' | 'supplier' | 'platform' | NULL)

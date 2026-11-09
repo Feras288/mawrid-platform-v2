@@ -86,5 +86,5 @@ CREATE OR REPLACE VIEW store_catalog AS
   SELECT sp.id, sp.org_id, sp.sku, sp.category_id, sp.brand_name, sp.name_ar, sp.name_en, sp.normalized_name, sp.store_price, sp.created_at
   FROM supplier_products sp
   WHERE sp.is_published AND sp.status = 'active' AND sp.store_price IS NOT NULL
-    AND sp.org_id IN (SELECT p.org_id FROM supplier_profiles p WHERE p.status = 'approved');
+    AND sp.org_id IN (SELECT unnest(app_approved_supplier_ids()));
 GRANT SELECT ON store_catalog TO app_user;

@@ -254,7 +254,7 @@ export async function suggestSuppliers(ctx: Ctx, rfqId: string, limit = 20): Pro
       .select({ orgId: supplierProfiles.orgId, nameAr: organizations.nameAr, nameEn: organizations.nameEn, regions: supplierProfiles.coverageRegions, nationwide: supplierProfiles.deliversNationwide })
       .from(supplierProfiles)
       .innerJoin(organizations, eq(organizations.id, supplierProfiles.orgId))
-      .where(and(eq(supplierProfiles.status, "approved"), eq(supplierProfiles.acceptsRfqs, true)));
+      .where(and(eq(supplierProfiles.status, "approved"), eq(supplierProfiles.acceptsRfqs, true), eq(organizations.status, "active")));
     const supCats = sups.length ? await tx.select().from(supplierCategories).where(inArray(supplierCategories.orgId, sups.map((s) => s.orgId))) : [];
     const prodCounts = canonIds.length
       ? await tx
@@ -305,7 +305,11 @@ export async function setRecipients(ctx: Ctx, rfqId: string, supplierOrgIds: str
     const r = await loadRfq(tx, ctx, rfqId);
     if (!["draft", "pending_review"].includes(r.status)) throw invalidState("Recipients can be changed before sending", { key: "rfq_not_draft" });
     if (ids.length) {
-      const ok = await tx.select({ orgId: supplierProfiles.orgId }).from(supplierProfiles).where(and(inArray(supplierProfiles.orgId, ids), eq(supplierProfiles.status, "approved"), eq(supplierProfiles.acceptsRfqs, true)));
+      const ok = await tx
+        .select({ orgId: supplierProfiles.orgId })
+        .from(supplierProfiles)
+        .innerJoin(organizations, eq(organizations.id, supplierProfiles.orgId))
+        .where(and(inArray(supplierProfiles.orgId, ids), eq(supplierProfiles.status, "approved"), eq(supplierProfiles.acceptsRfqs, true), eq(organizations.status, "active")));
       if (ok.length !== ids.length) throw validation("Only approved suppliers accepting RFQs can be invited", { key: "supplier_not_eligible" });
     }
     await tx.delete(rfqRecipients).where(and(eq(rfqRecipients.rfqId, rfqId), ids.length ? notInArray(rfqRecipients.supplierOrgId, ids) : undefined));
@@ -395,6 +399,14 @@ export async function deliverRecipient(recipientId: string): Promise<"sent" | "f
       .innerJoin(roles, eq(roles.id, membershipRoles.roleId))
       .where(and(eq(memberships.orgId, rc.supplierOrgId), eq(memberships.status, "active"), sql`'supplier.rfq.view' = any(${roles.permissions})`));
     const attempts = rc.attempts + 1;
+    // re-check eligibility at delivery time: a supplier suspended after being invited must not receive the RFQ
+    const eligible = (await tx.execute(sql`select app_supplier_approved(${rc.supplierOrgId}) as ok`)).rows[0] as { ok: boolean } | undefined;
+    if (!eligible?.ok) {
+      await tx.update(rfqRecipients).set({ status: "failed", attempts, lastAttemptAt: new Date(), lastError: "supplier_not_eligible" }).where(eq(rfqRecipients.id, rc.id));
+      await tx.insert(rfqRecipientEvents).values({ recipientId: rc.id, orgId: rc.orgId, supplierOrgId: rc.supplierOrgId, kind: "failed", detail: { reason: "supplier_not_eligible" } });
+      await maybeOpen(tx, rc.rfqId);
+      return "failed";
+    }
     if (!users.length) {
       await tx.update(rfqRecipients).set({ status: "failed", attempts, lastAttemptAt: new Date(), lastError: "no_recipient_users" }).where(eq(rfqRecipients.id, rc.id));
       await tx.insert(rfqRecipientEvents).values({ recipientId: rc.id, orgId: rc.orgId, supplierOrgId: rc.supplierOrgId, kind: "failed", detail: { reason: "no_recipient_users" } });

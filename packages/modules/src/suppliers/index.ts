@@ -335,7 +335,7 @@ export async function listApprovedSuppliers(q?: string) {
       .select({ orgId: organizations.id, nameAr: organizations.nameAr, nameEn: organizations.nameEn, city: organizations.city })
       .from(supplierProfiles)
       .innerJoin(organizations, eq(organizations.id, supplierProfiles.orgId))
-      .where(and(eq(supplierProfiles.status, "approved"), eq(supplierProfiles.acceptsRfqs, true), q ? sql`(${organizations.nameEn} ilike ${"%" + q + "%"} or ${organizations.nameAr} ilike ${"%" + q + "%"})` : undefined))
+      .where(and(eq(supplierProfiles.status, "approved"), eq(supplierProfiles.acceptsRfqs, true), eq(organizations.status, "active"), q ? sql`(${organizations.nameEn} ilike ${"%" + q + "%"} or ${organizations.nameAr} ilike ${"%" + q + "%"})` : undefined))
       .orderBy(asc(organizations.nameEn))
       .limit(300),
   );
