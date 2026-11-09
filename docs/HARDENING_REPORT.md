@@ -169,8 +169,8 @@ PO cancelled; ship → cannot cancel → receive → complete regression.
   `pending` (`failure_reason = provider_unreachable`), attempt recorded in `payment_attempts`. After
   `REFUND_MAX_ATTEMPTS` (6) it becomes `manual_required` with an audit entry (`refund.escalated`), the amount
   stays reserved, and it appears in the admin "refunds needing action" list.
-- The provider is always called with the refund's idempotency key, so retrying an executed-but-unanswered
-  refund returns the original result instead of refunding twice.
+- The provider is called with the refund's idempotency key. **Superseded by review round 3:** the platform only re-sends
+  after an unknown outcome to providers that PROVE refund idempotency; Moyasar does not (see round 3).
 - Refunds the provider **accepted as pending** (`provider_ref` set) are not re-sent but reconciled — see Review round 2, R2-1.
 - `MoyasarProvider.refund`: 4xx (except 408/429) → terminal `failed`; everything else is thrown (unknown).
 - New job `store.recover_refunds` (worker, every 5 min) → `recoverPendingRefunds()`.
@@ -238,8 +238,8 @@ forever, holding their amount in the refundable capacity and never reaching the 
   - lookup error or `pending` → unchanged, retried next sweep;
   - still unconfirmed after `REFUND_CONFIRM_MAX_AGE_MS` (48 h) → `manual_required`
     (`provider_unconfirmed`, audit `refund.escalated`); providers without `fetchRefund` take the same path.
-- Idempotency guarantees: the reconcile path performs no provider write at all; the resend path (no `provider_ref`)
-  still uses the claimed attempt and the refund's idempotency key.
+- Idempotency guarantees: the reconcile path performs no provider write at all. (Round 3 restricts the resend path
+  to providers with proven refund idempotency.)
 
 **Tests.** confirm → completed once, refund call count stays 1, credit note once, repeated sweep no-op; pending →
 stays pending and the lease prevents re-polling; provider failure → `failed`, amount released, order still `paid`,
@@ -303,7 +303,77 @@ platform totals and no credit note; dismiss/refund exclusivity; outage during a 
 **Not done (needs a decision).** Wiring these two functions into the admin finance screen. It was left out
 because the request excluded UI changes; the service API is complete and tested.
 
+## Review round 3 — is Moyasar refund idempotency proven? (decision record)
+
+**Question.** `MoyasarProvider.refund` sends an `idempotency-key` header and the recovery strategy re-POSTed a refund
+with an unknown outcome on the assumption that Moyasar would replay the original result instead of refunding again.
+
+**Evidence reviewed (official Moyasar documentation, read 2026-11-09).**
+1. [Idempotency](https://docs.moyasar.com/api/idempotency): describes "payment creation idempotency" only. The
+   mechanism is a client-generated `given_id` (UUID) in the request **body** of the create-payment call; reusing it for a
+   different payment returns 400. No HTTP header is mentioned. Refunds, voids and captures are not mentioned at all.
+2. [Refund Payment reference](https://docs.moyasar.com/api/payments/05-refund-payment): path `id`, optional body
+   `amount`; **no headers listed**, no `Idempotency-Key`, no `given_id`; nothing about retries or about what happens if
+   the same refund request is sent twice. Whether several partial refunds accumulate is not stated either.
+3. [Payment operations guide](https://docs.moyasar.com/guides/payment-operations): for a failed refund it advises
+   checking the payment with `GET /v1/payments/{id}`, **retrying the refund once**, then contacting support; it does not
+   mention idempotency or duplicate-refund protection.
+4. [Fetch payment](https://docs.moyasar.com/api/payments/02-fetch-payment) / [status reference](https://docs.moyasar.com/api/payments/payment-status-reference):
+   the payment object has `refunded` (integer, "refunded amount, ≤ payment amount") and `refunded_at`; the docs do not say
+   whether a partial refund changes `status`.
+
+**Decision.** Refund idempotency at Moyasar is **not documented and therefore not proven**; I did not contact Moyasar or
+call the API (no production keys, no live gateway). We therefore treat it as absent:
+- New adapter capability `PaymentProvider.refundIdempotency?: "proven" | "unproven"`. Moyasar = `unproven`
+  (with the evidence above in the code comment); the simulator = `proven` (it models a provider that replays by key);
+  unset is treated as unproven. The `idempotency-key` header is still sent, as a best-effort hint that is **not relied upon**.
+- For a provider that is not `proven`, **only the first POST is ever sent automatically** (`attempts = 0` claim). Any
+  later situation — the call threw or timed out, 5xx, the process died after the claim — is an *unknown outcome* and is
+  **never re-POSTed**, neither by the recovery job nor by an explicit same-key retry. (This matches the vendor's own
+  guidance only in spirit: their "retry once" is a manual step after checking the payment, which is what the reconciliation does.)
+- Unknown outcomes are **reconciled by reading the payment** (`fetchRefund`, a GET): confirmed only on *positive*
+  evidence — the payment's cumulative `refunded` total covers (confirmed so far + this refund). A bare `status` is not
+  accepted as evidence. Then `completeRefund` runs (idempotent, ledger, credit note, return closed).
+- When the read cannot establish the outcome (lookup failing, or no refund visible) the refund stays `pending` and is
+  re-read each sweep for `REFUND_UNKNOWN_OUTCOME_MAX_AGE_MS` (30 min, to let an in-flight request settle), then goes to
+  **`manual_required`** (`failureReason = outcome_unknown`, audit `refund.escalated`) with its amount still reserved. We
+  accept that a request which genuinely never reached Moyasar also ends in manual follow-up: with no proof of
+  idempotency, finance (who can check the Moyasar dashboard) decides, instead of the platform risking a second refund.
+- Providers that *do* prove refund idempotency keep the earlier behaviour (same-key retry, attempt budget of 6).
+- Unchanged: accepted-as-pending refunds are reconciled, never re-sent; reconciliation is oldest-first per payment.
+
+**Required test — "the provider executed the refund but the response was lost, then a recovery attempt arrives".**
+`hardening-finance3.int.test.ts` simulates a Moyasar-like provider (no replay: every POST is a new refund at the
+provider; only the cumulative total is visible): the first POST executes then throws `ETIMEDOUT`; the recovery sweep
+reconciles it from the payment total — refund `succeeded`, credit note once, provider total **exactly 5.00**, POST count **1**.
+On the round-2 code the same scenario sent a **second POST** (POST count 2 = double refund) — reproduced first.
+
+Other round-3 tests: request never reached the provider → no re-POST across sweeps, escalates to `manual_required` after
+the window with audit and the amount still reserved; explicit same-key retry after the lease does not POST; failing
+lookup is not a verdict (waits, later confirmed without any POST); a refund never attempted (crash before the first
+send) still gets its first POST; accepted-as-pending refunds still only reconciled; the proven-idempotent simulator keeps
+the replay behaviour. Unit: Moyasar declares `unproven`, `fetchRefund` does not trust a bare status.
+
+**Residual risk.** (1) The cumulative `refunded` field is documented as a total ≤ the payment amount; that repeated
+partial refunds *accumulate* in it is an inference, not a documented guarantee, and out-of-band refunds on the same payment
+also count. Because confirmation needs positive evidence and an inconclusive read ends in `manual_required`, the failure
+mode of a wrong inference is a manual review, not an automatic second refund. (2) Before enabling Moyasar live, ask Moyasar
+(or run their sandbox) whether `POST /payments/{id}/refund` honours an idempotency key; if confirmed, set
+`refundIdempotency = "proven"` for that adapter and the earlier same-key retry applies. Tracked as Integration Pending.
+
 ## Results (actual runs, 2026-11-09, sequential, local Postgres/Valkey/SeaweedFS)
+
+| Check | Command | Result |
+|---|---|---|
+| Lint | `pnpm lint` | 0 errors / 0 warnings |
+| Typecheck | `pnpm typecheck` | 6/6 packages |
+| Unit | `pnpm test` | **78/78** |
+| Integration | `pnpm test:integration` | **115/115** (14 files; 61 baseline + 54 hardening) |
+| E2E | `pnpm test:e2e` | **23/23** |
+| Migrations | no schema change in round 3 (`0013`, `0014` unchanged) | n/a |
+| CI | GitHub Actions on the PR branch | see PR #1 |
+
+## Results of round 2 (actual runs; superseded by the table above for the final state)
 
 | Check | Command | Result |
 |---|---|---|

@@ -66,6 +66,13 @@ export interface PaymentProvider {
   readonly name: "test" | "moyasar" | "bank_transfer";
   /** true when the provider sends the customer to a hosted page */
   readonly redirects: boolean;
+  /**
+   * Whether the provider's API is DOCUMENTED to replay the original result when a refund is repeated with the same
+   * idempotency key. Only `"proven"` lets the platform re-send a refund whose outcome is unknown. Anything else
+   * (including leaving it unset) is treated as unproven: the platform then never POSTs a second time, reconciles by
+   * reading the payment, and escalates to manual follow-up when it cannot establish what happened.
+   */
+  readonly refundIdempotency?: "proven" | "unproven";
   isConfigured(): boolean;
   createPayment(input: CreatePaymentInput): Promise<CreatePaymentResult>;
   fetchPayment(providerRef: string): Promise<FetchedPayment>;
@@ -99,6 +106,8 @@ const notProd = (name: string) => {
 export class TestPaymentProvider implements PaymentProvider {
   readonly name = "test" as const;
   readonly redirects = true;
+  /** The simulator replays by key (see `refundsByKey`), standing in for a provider that documents refund idempotency. */
+  readonly refundIdempotency = "proven" as const;
   private static state = new Map<string, { status: ProviderStatus; amountMinor: number; currency: string }>();
   /** Refunds by idempotency key (a real provider replays the original result for a repeated key) and totals per payment. */
   private static refundsByKey = new Map<string, RefundResult>();
@@ -192,6 +201,14 @@ const MOYASAR_STATUS: Record<string, ProviderStatus> = {
 export class MoyasarProvider implements PaymentProvider {
   readonly name = "moyasar" as const;
   readonly redirects = true;
+  /**
+   * UNPROVEN. Moyasar documents idempotency for payment creation only (`given_id` in the body of "create payment";
+   * https://docs.moyasar.com/api/idempotency). Neither that page nor the Refund Payment reference
+   * (https://docs.moyasar.com/api/payments/05-refund-payment, no headers, no key, nothing on repeated requests) says
+   * a repeated refund is de-duplicated, and no `Idempotency-Key` header is documented. The header sent below is
+   * best-effort only and is NOT relied upon: a refund with an unknown outcome is never POSTed again automatically.
+   */
+  readonly refundIdempotency = "unproven" as const;
   private base: string;
   private f: typeof fetch;
   constructor(private cfg: MoyasarConfig) {
@@ -275,7 +292,9 @@ export class MoyasarProvider implements PaymentProvider {
   async fetchRefund(i: RefundLookup): Promise<RefundResult> {
     const p = await this.call<{ id: string; status: string; refunded?: number | string | null }>("GET", `/payments/${encodeURIComponent(i.paymentId)}`);
     const refunded = Number(p.refunded ?? 0);
-    const done = p.status === "refunded" || (Number.isFinite(refunded) && refunded >= i.refundedBeforeMinor + i.amountMinor);
+    // positive evidence only: the cumulative total must cover what is confirmed + this refund (a bare status is not enough,
+    // Moyasar does not document whether a partial refund changes it)
+    const done = Number.isFinite(refunded) && p.refunded != null && refunded >= i.refundedBeforeMinor + i.amountMinor;
     return { status: done ? "succeeded" : "pending", providerRef: p.id };
   }
   parseWebhook(rawBody: string): WebhookEvent | null {

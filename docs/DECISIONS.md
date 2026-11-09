@@ -160,3 +160,7 @@ Refunds are requested durably (same transaction as the decision) and executed wi
 refund's idempotency key; unknown provider outcomes stay `pending`, are retried by the `store.recover_refunds`
 job and escalate to `manual_required` after 6 attempts. Webhook events are re-claimed atomically when `failed`
 or when a `received` lease (5 min) expired.
+Amendment (round 3): refund idempotency is a per-provider capability (`refundIdempotency`). Moyasar documents idempotency
+for payment creation (`given_id`) only, so it is "unproven": after the first POST a refund with an unknown outcome is never
+re-POSTed; it is reconciled by reading the payment (positive evidence only) and escalated to `manual_required`
+(`outcome_unknown`) after 30 minutes. Re-sending with the same key remains for providers that prove it.

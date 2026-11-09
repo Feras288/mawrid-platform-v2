@@ -425,6 +425,14 @@ export const REFUND_RETRY_AFTER_MS = 60_000;
 export const REFUND_MAX_ATTEMPTS = 6;
 /** A refund the provider accepted but never confirmed within this window is handed to finance (manual_required). */
 export const REFUND_CONFIRM_MAX_AGE_MS = 48 * 3_600_000;
+/**
+ * A refund sent to a provider WITHOUT proven refund idempotency whose outcome is unknown (call failed, timed out, process
+ * died) is only reconciled by reading the payment — never re-sent. If the read does not show it within this window it is
+ * handed to finance (manual_required, `outcome_unknown`).
+ */
+export const REFUND_UNKNOWN_OUTCOME_MAX_AGE_MS = 30 * 60_000;
+
+const resendIsSafe = (p: PaymentProvider) => p.refundIdempotency === "proven";
 
 /**
  * Record a refund request (idempotent per key). Bounded by what was captured and not yet refunded, per
@@ -485,11 +493,17 @@ export async function refundPayment(input: RefundInput): Promise<{ refundId: str
 async function executeRefund(refundId: string, opts: { leaseMs?: number; maxAttempts?: number } = {}): Promise<{ refundId: string; status: string }> {
   const leaseMs = opts.leaseMs ?? REFUND_RETRY_AFTER_MS;
   const maxAttempts = opts.maxAttempts ?? REFUND_MAX_ATTEMPTS;
+  const [pre] = await withSystem((tx) => tx.select({ intent: paymentIntents }).from(refunds).innerJoin(paymentIntents, eq(paymentIntents.id, refunds.intentId)).where(eq(refunds.id, refundId)).limit(1));
+  if (!pre) throw notFound("Refund");
+  const intent = pre.intent;
+  const provider: PaymentProvider | null = await providerFor(intent.provider).catch(() => null);
+  // Without PROVEN refund idempotency only the very first send is allowed (attempts = 0); every later look is a read.
+  const firstSendOnly = !provider || !resendIsSafe(provider);
   const claimed = await withSystem(async (tx) => {
     const rows = await tx
       .update(refunds)
       .set({ attempts: sql`${refunds.attempts} + 1`, lastAttemptAt: sql`now()` })
-      .where(and(eq(refunds.id, refundId), eq(refunds.status, "pending"), isNull(refunds.providerRef), sql`(${refunds.lastAttemptAt} is null or ${refunds.lastAttemptAt} <= now() - (${leaseMs}::double precision * interval '1 millisecond'))`))
+      .where(and(eq(refunds.id, refundId), eq(refunds.status, "pending"), isNull(refunds.providerRef), firstSendOnly ? eq(refunds.attempts, 0) : undefined, sql`(${refunds.lastAttemptAt} is null or ${refunds.lastAttemptAt} <= now() - (${leaseMs}::double precision * interval '1 millisecond'))`))
       .returning();
     return rows[0] ?? null;
   });
@@ -497,21 +511,20 @@ async function executeRefund(refundId: string, opts: { leaseMs?: number; maxAtte
     const [cur] = await withSystem((tx) => tx.select({ status: refunds.status }).from(refunds).where(eq(refunds.id, refundId)).limit(1));
     return { refundId, status: cur?.status ?? "pending" };
   }
-  const [intent] = await withSystem((tx) => tx.select().from(paymentIntents).where(eq(paymentIntents.id, claimed.intentId!)).limit(1));
-  if (!intent) throw notFound("Payment");
   let res: RefundResult;
   try {
-    const provider = await providerFor(intent.provider);
-    res = await provider.refund(intent.providerPaymentId ?? intent.providerRef ?? "", toMinor(claimed.amount), claimed.idempotencyKey);
+    res = await (provider ?? (await providerFor(intent.provider))).refund(intent.providerPaymentId ?? intent.providerRef ?? "", toMinor(claimed.amount), claimed.idempotencyKey);
   } catch (e) {
     const detail = e instanceof Error ? e.message.slice(0, 300) : String(e);
-    const exhausted = claimed.attempts >= maxAttempts;
+    // proven-idempotent provider: retry with the same key until the attempt budget is spent.
+    // otherwise: the request may or may not have been executed — keep it pending for READ-ONLY reconciliation, never re-send.
+    const exhausted = !firstSendOnly && claimed.attempts >= maxAttempts;
     await withSystem(async (tx) => {
       await tx
         .update(refunds)
-        .set({ failureReason: "provider_unreachable", ...(exhausted ? { status: "manual_required" } : {}) })
+        .set({ failureReason: firstSendOnly ? "outcome_unknown" : "provider_unreachable", ...(exhausted ? { status: "manual_required" } : {}) })
         .where(and(eq(refunds.id, claimed.id), eq(refunds.status, "pending")));
-      await tx.insert(paymentAttempts).values({ intentId: intent.id, kind: "refund", status: exhausted ? "manual_required" : "error", detail: { refundId: claimed.id, attempt: claimed.attempts, error: detail } });
+      await tx.insert(paymentAttempts).values({ intentId: intent.id, kind: "refund", status: exhausted ? "manual_required" : "error", detail: { refundId: claimed.id, attempt: claimed.attempts, error: detail, outcome: firstSendOnly ? "unknown" : "retryable" } });
       if (exhausted) await audit(SYS_CTX, { action: "refund.escalated", entityType: "refund", entityId: claimed.id, orgId: claimed.orgId, data: { attempts: claimed.attempts, reason: "provider_unreachable" } }, tx);
     });
     return { refundId: claimed.id, status: exhausted ? "manual_required" : "pending" };
@@ -537,7 +550,7 @@ async function executeRefund(refundId: string, opts: { leaseMs?: number; maxAtte
  * - `succeeded` goes through `completeRefund` (idempotent, order → intent → refund locks); `failed` is applied only
  *   when the provider reports a rejection; anything else stays pending until the confirmation window passes.
  */
-async function reconcileAcknowledgedRefund(refundId: string, opts: { leaseMs: number; maxAgeMs: number }): Promise<"succeeded" | "failed" | "pending" | "manual_required" | "skipped"> {
+async function reconcileAcknowledgedRefund(refundId: string, opts: { leaseMs: number; maxAgeMs: number; unknownMaxAgeMs: number }): Promise<"succeeded" | "failed" | "pending" | "manual_required" | "skipped"> {
   const claimed = await withSystem(async (tx) => {
     const rows = await tx
       .update(refunds)
@@ -546,7 +559,7 @@ async function reconcileAcknowledgedRefund(refundId: string, opts: { leaseMs: nu
         and(
           eq(refunds.id, refundId),
           eq(refunds.status, "pending"),
-          isNotNull(refunds.providerRef),
+          or(isNotNull(refunds.providerRef), sql`${refunds.attempts} >= 1`),
           sql`(${refunds.lastAttemptAt} is null or ${refunds.lastAttemptAt} <= now() - (${opts.leaseMs}::double precision * interval '1 millisecond'))`,
           sql`not exists (select 1 from refunds o where o.intent_id = ${refunds.intentId} and o.status in ('pending','manual_required') and (o.created_at, o.id) < (${refunds.createdAt}, ${refunds.id}))`,
         ),
@@ -584,10 +597,12 @@ async function reconcileAcknowledgedRefund(refundId: string, opts: { leaseMs: nu
     });
     return "failed";
   }
-  if (Date.now() - claimed.createdAt.getTime() >= opts.maxAgeMs) {
+  const acknowledged = claimed.providerRef != null;
+  if (Date.now() - claimed.createdAt.getTime() >= (acknowledged ? opts.maxAgeMs : opts.unknownMaxAgeMs)) {
+    const reason = acknowledged ? "provider_unconfirmed" : "outcome_unknown";
     await withSystem(async (tx) => {
-      await tx.update(refunds).set({ status: "manual_required", failureReason: "provider_unconfirmed" }).where(and(eq(refunds.id, claimed.id), eq(refunds.status, "pending")));
-      await audit(SYS_CTX, { action: "refund.escalated", entityType: "refund", entityId: claimed.id, orgId: claimed.orgId, data: { reason: "provider_unconfirmed", providerRef: claimed.providerRef } }, tx);
+      await tx.update(refunds).set({ status: "manual_required", failureReason: reason }).where(and(eq(refunds.id, claimed.id), eq(refunds.status, "pending")));
+      await audit(SYS_CTX, { action: "refund.escalated", entityType: "refund", entityId: claimed.id, orgId: claimed.orgId, data: { reason, providerRef: claimed.providerRef } }, tx);
     });
     return "manual_required";
   }
@@ -600,13 +615,14 @@ async function reconcileAcknowledgedRefund(refundId: string, opts: { leaseMs: nu
  * 2. accepted by the provider as pending (provider_ref set) → reconciled by reading the provider, never re-sent.
  * Both honour the lease `olderThanMs` and escalate to manual_required (attempt budget / confirmation window).
  */
-export async function recoverPendingRefunds(opts: { olderThanMs?: number; maxAttempts?: number; confirmMaxAgeMs?: number; limit?: number } = {}): Promise<{ examined: number; completed: number; failed: number; stillPending: number; escalated: number }> {
+export async function recoverPendingRefunds(opts: { olderThanMs?: number; maxAttempts?: number; confirmMaxAgeMs?: number; unknownMaxAgeMs?: number; limit?: number } = {}): Promise<{ examined: number; completed: number; failed: number; stillPending: number; escalated: number }> {
   const olderThanMs = opts.olderThanMs ?? REFUND_RETRY_AFTER_MS * 2;
   const idle = sql`coalesce(${refunds.lastAttemptAt}, ${refunds.createdAt}) <= now() - (${olderThanMs}::double precision * interval '1 millisecond')`;
   const due = await withSystem((tx) =>
     tx
-      .select({ id: refunds.id, acknowledged: sql<boolean>`${refunds.providerRef} is not null` })
+      .select({ id: refunds.id, acknowledged: sql<boolean>`${refunds.providerRef} is not null`, attempts: refunds.attempts, provider: paymentIntents.provider })
       .from(refunds)
+      .innerJoin(paymentIntents, eq(paymentIntents.id, refunds.intentId))
       .where(and(eq(refunds.status, "pending"), idle))
       .orderBy(refunds.createdAt, refunds.id)
       .limit(opts.limit ?? 100),
@@ -618,9 +634,14 @@ export async function recoverPendingRefunds(opts: { olderThanMs?: number; maxAtt
     else if (status === "manual_required") out.escalated++;
     else out.stillPending++;
   };
-  for (const { id, acknowledged } of due) {
+  for (const { id, acknowledged, attempts, provider } of due) {
     try {
-      const status = acknowledged ? await reconcileAcknowledgedRefund(id, { leaseMs: olderThanMs, maxAgeMs: opts.confirmMaxAgeMs ?? REFUND_CONFIRM_MAX_AGE_MS }) : (await executeRefund(id, { leaseMs: olderThanMs, maxAttempts: opts.maxAttempts })).status;
+      // accepted by the provider, or already sent once to a provider without proven refund idempotency → read-only reconciliation
+      const safeToResend = await providerFor(provider).then(resendIsSafe, () => false);
+      const reconcile = acknowledged || (attempts >= 1 && !safeToResend);
+      const status = reconcile
+        ? await reconcileAcknowledgedRefund(id, { leaseMs: olderThanMs, maxAgeMs: opts.confirmMaxAgeMs ?? REFUND_CONFIRM_MAX_AGE_MS, unknownMaxAgeMs: opts.unknownMaxAgeMs ?? REFUND_UNKNOWN_OUTCOME_MAX_AGE_MS })
+        : (await executeRefund(id, { leaseMs: olderThanMs, maxAttempts: opts.maxAttempts })).status;
       tally(status);
     } catch (err) {
       out.stillPending++;

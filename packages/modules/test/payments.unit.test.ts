@@ -107,6 +107,18 @@ describe("Moyasar adapter (contract, mocked HTTP)", () => {
     await expect(new MoyasarProvider({ secretKey: "sk", webhookSecret: "w", fetchImpl: f }).fetchRefund(lookup)).rejects.toBeDefined(); // lookup failure is not a verdict
   });
 
+  it("declares refund idempotency as UNPROVEN (Moyasar documents idempotency for payment creation only); the simulator is the only 'proven' provider", () => {
+    expect(new MoyasarProvider({}).refundIdempotency).toBe("unproven");
+    expect((new BankTransferProvider({}) as { refundIdempotency?: string }).refundIdempotency).toBeUndefined(); // unset is treated as unproven
+    expect(new TestPaymentProvider("s", () => "u").refundIdempotency).toBe("proven");
+  });
+
+  it("fetchRefund does not trust a bare status: without a numeric refunded total the refund is not confirmed", async () => {
+    const { f } = mockFetch([{ status: 200, body: { id: "pay_1", status: "refunded" } }]);
+    const r = await new MoyasarProvider({ secretKey: "sk", webhookSecret: "w", fetchImpl: f }).fetchRefund({ paymentId: "pay_1", providerRef: null, amountMinor: 100, refundedBeforeMinor: 0, idempotencyKey: "k" });
+    expect(r.status).toBe("pending");
+  });
+
   it("is not configured without keys", async () => {
     const p = new MoyasarProvider({});
     expect(p.isConfigured()).toBe(false);
