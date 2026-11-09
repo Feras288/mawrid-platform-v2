@@ -151,3 +151,16 @@ counts through `store_catalog`, an owner-privileged view that encodes the public
 Listing price for filter/sort is a trigger-maintained `store_price` (refreshed daily for validity windows);
 the price shown is always resolved per viewer (enterprise / contract / regional). Measured p95 251 ms
 (service) / 328 ms (HTTP) at 100k products.
+
+## ADR-025 — Payment & PO concurrency model (2026-11-09)
+Lock order is fixed: **order → payment intent → refund → group** for payments and **PO → PO items** for
+procurement; state is re-validated under the lock. An order has at most one primary captured intent (partial
+unique index); further captures are flagged `duplicate_of` and refunded in full without touching the ledger.
+Refunds are requested durably (same transaction as the decision) and executed with a leased attempt and the
+refund's idempotency key; unknown provider outcomes stay `pending`, are retried by the `store.recover_refunds`
+job and escalate to `manual_required` after 6 attempts. Webhook events are re-claimed atomically when `failed`
+or when a `received` lease (5 min) expired.
+Amendment (round 3): refund idempotency is a per-provider capability (`refundIdempotency`). Moyasar documents idempotency
+for payment creation (`given_id`) only, so it is "unproven": after the first POST a refund with an unknown outcome is never
+re-POSTed; it is reconciled by reading the payment (positive evidence only) and escalated to `manual_required`
+(`outcome_unknown`) after 30 minutes. Re-sending with the same key remains for providers that prove it.

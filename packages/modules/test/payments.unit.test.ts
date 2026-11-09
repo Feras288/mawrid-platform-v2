@@ -65,6 +65,60 @@ describe("Moyasar adapter (contract, mocked HTTP)", () => {
     expect(r.failureReason).toContain("amount too big");
   });
 
+  it("treats 5xx, throttling, timeouts and network errors as UNKNOWN outcomes (thrown for retry), not terminal failures", async () => {
+    for (const status of [500, 502, 503, 408, 429]) {
+      const { f } = mockFetch([{ status, body: { message: "try later" } }]);
+      const p = new MoyasarProvider({ secretKey: "sk", webhookSecret: "w", fetchImpl: f });
+      await expect(p.refund("pay_1", 100, "rf-1"), `HTTP ${status}`).rejects.toBeDefined();
+    }
+    const down = (async () => {
+      throw new TypeError("fetch failed");
+    }) as unknown as typeof fetch;
+    await expect(new MoyasarProvider({ secretKey: "sk", webhookSecret: "w", fetchImpl: down }).refund("pay_1", 100, "rf-1")).rejects.toThrow("fetch failed");
+    // an unparseable gateway page is also an unknown outcome
+    const html = (async () => new Response("<html>bad gateway</html>", { status: 200 })) as unknown as typeof fetch;
+    await expect(new MoyasarProvider({ secretKey: "sk", webhookSecret: "w", fetchImpl: html }).refund("pay_1", 100, "rf-1")).rejects.toBeDefined();
+  });
+
+  it("sends the refund idempotency key on every attempt", async () => {
+    const { f, calls } = mockFetch([{ status: 502, body: {} }, { status: 200, body: { id: "pay_1", status: "refunded" } }]);
+    const p = new MoyasarProvider({ secretKey: "sk", webhookSecret: "w", fetchImpl: f });
+    await expect(p.refund("pay_1", 100, "rf-key")).rejects.toBeDefined();
+    expect((await p.refund("pay_1", 100, "rf-key")).status).toBe("succeeded");
+    expect(calls.map((c) => (c.init.headers as Record<string, string>)["idempotency-key"])).toEqual(["rf-key", "rf-key"]);
+  });
+
+  it("fetchRefund is a read-only GET and confirms only when the cumulative refunded total covers the confirmed amount plus this refund", async () => {
+    const lookup = { paymentId: "pay_1", providerRef: "pay_1", amountMinor: 700, refundedBeforeMinor: 500, idempotencyKey: "rf-2" };
+    const ask = async (body: unknown) => {
+      const { f, calls } = mockFetch([{ status: 200, body }]);
+      const r = await new MoyasarProvider({ secretKey: "sk", webhookSecret: "w", fetchImpl: f }).fetchRefund(lookup);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.init.method).toBe("GET");
+      expect(calls[0]!.url).toContain("/payments/pay_1");
+      return r.status;
+    };
+    expect(await ask({ id: "pay_1", status: "paid", refunded: 500 })).toBe("pending"); // only the earlier refund is there
+    expect(await ask({ id: "pay_1", status: "paid", refunded: 1199 })).toBe("pending");
+    expect(await ask({ id: "pay_1", status: "paid", refunded: 1200 })).toBe("succeeded");
+    expect(await ask({ id: "pay_1", status: "refunded", refunded: 2300 })).toBe("succeeded");
+    expect(await ask({ id: "pay_1", status: "paid" })).toBe("pending");
+    const { f } = mockFetch([{ status: 503, body: {} }]);
+    await expect(new MoyasarProvider({ secretKey: "sk", webhookSecret: "w", fetchImpl: f }).fetchRefund(lookup)).rejects.toBeDefined(); // lookup failure is not a verdict
+  });
+
+  it("declares refund idempotency as UNPROVEN (Moyasar documents idempotency for payment creation only); the simulator is the only 'proven' provider", () => {
+    expect(new MoyasarProvider({}).refundIdempotency).toBe("unproven");
+    expect((new BankTransferProvider({}) as { refundIdempotency?: string }).refundIdempotency).toBeUndefined(); // unset is treated as unproven
+    expect(new TestPaymentProvider("s", () => "u").refundIdempotency).toBe("proven");
+  });
+
+  it("fetchRefund does not trust a bare status: without a numeric refunded total the refund is not confirmed", async () => {
+    const { f } = mockFetch([{ status: 200, body: { id: "pay_1", status: "refunded" } }]);
+    const r = await new MoyasarProvider({ secretKey: "sk", webhookSecret: "w", fetchImpl: f }).fetchRefund({ paymentId: "pay_1", providerRef: null, amountMinor: 100, refundedBeforeMinor: 0, idempotencyKey: "k" });
+    expect(r.status).toBe("pending");
+  });
+
   it("is not configured without keys", async () => {
     const p = new MoyasarProvider({});
     expect(p.isConfigured()).toBe(false);
@@ -87,6 +141,18 @@ describe("test & bank-transfer providers", () => {
     const body = JSON.stringify({ id: "e1", type: "t", ref: "r1" });
     expect(p.parseWebhook(body, new Headers({ "x-test-signature": "bad" }))).toBeNull();
     expect(p.parseWebhook(body, new Headers({ "x-test-signature": p.sign(body) }))?.providerRef).toBe("r1");
+  });
+  it("test provider replays the original refund for a repeated idempotency key and never over-refunds", async () => {
+    const p = new TestPaymentProvider("secret", () => "u");
+    const ref = `test_unit_${Math.random().toString(36).slice(2)}`;
+    await p.createPayment({ intentId: ref.slice(5), amountMinor: 1000, currency: "SAR", description: "d", successUrl: "u", backUrl: "u", callbackUrl: "u" });
+    TestPaymentProvider.settle(ref, "succeeded");
+    const a = await p.refund(ref, 600, "k1");
+    expect(a.status).toBe("succeeded");
+    expect(await p.refund(ref, 600, "k1")).toEqual(a);
+    expect(TestPaymentProvider.refundedMinor(ref)).toBe(600);
+    expect((await p.refund(ref, 600, "k2")).failureReason).toBe("invalid_amount");
+    expect(TestPaymentProvider.refundedMinor(ref)).toBe(600);
   });
   it("bank transfer returns instructions and requires manual refunds", async () => {
     const p = new BankTransferProvider({ bankName: "Bank", iban: "SA0000000000000000000000", beneficiary: "Seller" });

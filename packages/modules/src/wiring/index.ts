@@ -12,7 +12,7 @@ import { registerProcessor } from "../jobs";
 import { syncReferenceData } from "../reference";
 import { expireDocuments } from "../suppliers";
 import { completeDeliveredGroups } from "../commerce";
-import { expireUnpaidOrders } from "../payments";
+import { expireUnpaidOrders, recoverPendingRefunds } from "../payments";
 import { runPriceIndex } from "../price-index";
 import { buildExport } from "../privacy";
 
@@ -50,6 +50,7 @@ registerProcessor("default", "suppliers.expire_documents", async () => expireDoc
 registerProcessor("default", "reference.sync", async () => syncReferenceData());
 
 registerProcessor("default", "store.expire_unpaid", async () => expireUnpaidOrders());
+registerProcessor("default", "store.recover_refunds", async () => recoverPendingRefunds());
 registerProcessor("default", "store.complete_delivered", async () => completeDeliveredGroups());
 
 registerProcessor("analytics", "price_index.run", async () => runPriceIndex());

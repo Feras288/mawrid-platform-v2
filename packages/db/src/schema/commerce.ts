@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, check, index, integer, jsonb, numeric, pgSequence, pgTable, primaryKey, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { type AnyPgColumn, boolean, check, index, integer, jsonb, numeric, pgSequence, pgTable, primaryKey, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { amount, createdAt, id, qty, ts, updatedAt } from "./_common";
 import { authUsers } from "./auth";
 import { organizations } from "./organizations";
@@ -303,6 +303,8 @@ export const paymentIntents = pgTable(
     currency: text("currency").notNull().default("SAR"),
     /** created | pending | succeeded | failed | expired | cancelled */
     status: text("status").notNull().default("created"),
+    /** set when this capture is an extra successful payment for an order that another intent already paid */
+    duplicateOf: uuid("duplicate_of").references((): AnyPgColumn => paymentIntents.id),
     refundedAmount: amount("refunded_amount").notNull().default("0"),
     redirectUrl: text("redirect_url"),
     instructions: jsonb("instructions").$type<Record<string, string>>(),
@@ -315,6 +317,8 @@ export const paymentIntents = pgTable(
   (t) => [
     index("payment_intents_order_idx").on(t.orderId),
     uniqueIndex("payment_intents_ref_uq").on(t.provider, t.providerRef),
+    /** at most one primary (non-duplicate) captured payment per order */
+    uniqueIndex("payment_intents_one_primary_uq").on(t.orderId).where(sql`${t.status} = 'succeeded' and ${t.duplicateOf} is null`),
     check("payment_intents_status_chk", sql`${t.status} in ('created','pending','succeeded','failed','expired','cancelled')`),
     check("payment_intents_refund_chk", sql`${t.refundedAmount} >= 0 and ${t.refundedAmount} <= ${t.amount}`),
   ],
@@ -347,6 +351,10 @@ export const paymentWebhookEvents = pgTable(
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
     status: text("status").notNull().default("received"), // received | processed | ignored | failed
     error: text("error"),
+    /** processing attempts (redeliveries of a failed or stranded event are re-processed) */
+    attempts: integer("attempts").notNull().default(1),
+    /** start of the latest attempt; a 'received' event older than the lease is considered abandoned */
+    lastAttemptAt: ts("last_attempt_at").notNull().defaultNow(),
     processedAt: ts("processed_at"),
     createdAt: createdAt(),
   },
@@ -372,6 +380,9 @@ export const refunds = pgTable(
     idempotencyKey: text("idempotency_key").notNull(),
     failureReason: text("failure_reason"),
     requestedBy: uuid("requested_by"),
+    /** provider calls made so far, and when the latest one started (lease for recovery) */
+    attempts: integer("attempts").notNull().default(0),
+    lastAttemptAt: ts("last_attempt_at"),
     createdAt: createdAt(),
     processedAt: ts("processed_at"),
   },

@@ -51,14 +51,43 @@ export interface RefundResult {
   failureReason?: string | null;
 }
 
+export interface RefundLookup {
+  /** the captured payment the refund was made against */
+  paymentId: string;
+  /** reference returned when the provider accepted the refund (may identify the payment itself) */
+  providerRef: string | null;
+  amountMinor: number;
+  /** minor units of this payment already refunded and confirmed on our side, excluding this refund */
+  refundedBeforeMinor: number;
+  idempotencyKey: string;
+}
+
 export interface PaymentProvider {
   readonly name: "test" | "moyasar" | "bank_transfer";
   /** true when the provider sends the customer to a hosted page */
   readonly redirects: boolean;
+  /**
+   * Whether the provider's API is DOCUMENTED to replay the original result when a refund is repeated with the same
+   * idempotency key. Only `"proven"` lets the platform re-send a refund whose outcome is unknown. Anything else
+   * (including leaving it unset) is treated as unproven: the platform then never POSTs a second time, reconciles by
+   * reading the payment, and escalates to manual follow-up when it cannot establish what happened.
+   */
+  readonly refundIdempotency?: "proven" | "unproven";
   isConfigured(): boolean;
   createPayment(input: CreatePaymentInput): Promise<CreatePaymentResult>;
   fetchPayment(providerRef: string): Promise<FetchedPayment>;
+  /**
+   * Resolves with a definitive outcome (`succeeded`, `pending` = accepted, `failed` = rejected). MUST throw when the
+   * outcome is unknown (timeout, network error, 5xx): the caller keeps the refund pending and retries with the same
+   * `idempotencyKey`, which the provider must honour by replaying the original result.
+   */
   refund(paymentId: string, amountMinor: number, idempotencyKey: string): Promise<RefundResult>;
+  /**
+   * Optional. Read-only status of a refund the provider ACCEPTED as pending (never re-sends it): `succeeded` once the
+   * money is returned, `failed` only when the provider reports a rejection, otherwise `pending`. Throws when the lookup
+   * itself fails. Providers without it are escalated to manual follow-up when the confirmation window passes.
+   */
+  fetchRefund?(input: RefundLookup): Promise<RefundResult>;
   /** Verify authenticity and parse; returns null when the signature/secret is invalid. */
   parseWebhook(rawBody: string, headers: Headers): WebhookEvent | null;
 }
@@ -77,7 +106,16 @@ const notProd = (name: string) => {
 export class TestPaymentProvider implements PaymentProvider {
   readonly name = "test" as const;
   readonly redirects = true;
+  /** The simulator replays by key (see `refundsByKey`), standing in for a provider that documents refund idempotency. */
+  readonly refundIdempotency = "proven" as const;
   private static state = new Map<string, { status: ProviderStatus; amountMinor: number; currency: string }>();
+  /** Refunds by idempotency key (a real provider replays the original result for a repeated key) and totals per payment. */
+  private static refundsByKey = new Map<string, RefundResult>();
+  private static refundedByPayment = new Map<string, number>();
+  /** Tests: minor units this provider has actually refunded for a payment. */
+  static refundedMinor(paymentId: string): number {
+    return TestPaymentProvider.refundedByPayment.get(paymentId) ?? 0;
+  }
   constructor(
     private secret: string,
     private simulatorUrl: (intentId: string) => string,
@@ -102,11 +140,23 @@ export class TestPaymentProvider implements PaymentProvider {
     if (!s) throw new AppError("NOT_FOUND", "Unknown test payment", { key: "not_found" });
     return { providerRef: ref, status: s.status, amountMinor: s.amountMinor, currency: s.currency, paymentId: ref, raw: { ...s } };
   }
-  async refund(paymentId: string, amountMinor: number): Promise<RefundResult> {
+  async refund(paymentId: string, amountMinor: number, idempotencyKey?: string): Promise<RefundResult> {
+    const replay = idempotencyKey ? TestPaymentProvider.refundsByKey.get(idempotencyKey) : undefined;
+    if (replay) return replay;
     const s = TestPaymentProvider.state.get(paymentId);
-    if (!s || s.status !== "succeeded") return { status: "failed", providerRef: null, failureReason: "not_captured" };
-    if (amountMinor <= 0 || amountMinor > s.amountMinor) return { status: "failed", providerRef: null, failureReason: "invalid_amount" };
-    return { status: "succeeded", providerRef: `${paymentId}_rf_${Date.now()}` };
+    let result: RefundResult;
+    const done = TestPaymentProvider.refundedByPayment.get(paymentId) ?? 0;
+    if (!s || s.status !== "succeeded") result = { status: "failed", providerRef: null, failureReason: "not_captured" };
+    else if (amountMinor <= 0 || done + amountMinor > s.amountMinor) result = { status: "failed", providerRef: null, failureReason: "invalid_amount" };
+    else {
+      TestPaymentProvider.refundedByPayment.set(paymentId, done + amountMinor);
+      result = { status: "succeeded", providerRef: `${paymentId}_rf_${idempotencyKey ?? Date.now()}` };
+    }
+    if (idempotencyKey) TestPaymentProvider.refundsByKey.set(idempotencyKey, result);
+    return result;
+  }
+  async fetchRefund(i: RefundLookup): Promise<RefundResult> {
+    return TestPaymentProvider.refundsByKey.get(i.idempotencyKey) ?? { status: "pending", providerRef: i.providerRef };
   }
   sign(body: string) {
     return hmacSha256(this.secret, body);
@@ -151,6 +201,14 @@ const MOYASAR_STATUS: Record<string, ProviderStatus> = {
 export class MoyasarProvider implements PaymentProvider {
   readonly name = "moyasar" as const;
   readonly redirects = true;
+  /**
+   * UNPROVEN. Moyasar documents idempotency for payment creation only (`given_id` in the body of "create payment";
+   * https://docs.moyasar.com/api/idempotency). Neither that page nor the Refund Payment reference
+   * (https://docs.moyasar.com/api/payments/05-refund-payment, no headers, no key, nothing on repeated requests) says
+   * a repeated refund is de-duplicated, and no `Idempotency-Key` header is documented. The header sent below is
+   * best-effort only and is NOT relied upon: a refund with an unknown outcome is never POSTed again automatically.
+   */
+  readonly refundIdempotency = "unproven" as const;
   private base: string;
   private f: typeof fetch;
   constructor(private cfg: MoyasarConfig) {
@@ -210,13 +268,34 @@ export class MoyasarProvider implements PaymentProvider {
       raw: inv as unknown as Record<string, unknown>,
     };
   }
+  /**
+   * A 4xx answer is a definitive rejection (`failed`). Anything else — network error, timeout, 5xx, 408/429,
+   * an unparseable reply — leaves the outcome unknown, so it is thrown for the caller to retry with the same
+   * idempotency key rather than reported as a terminal failure.
+   */
   async refund(paymentId: string, amountMinor: number, idempotencyKey: string): Promise<RefundResult> {
     try {
       const p = await this.call<{ id: string; status: string }>("POST", `/payments/${encodeURIComponent(paymentId)}/refund`, { amount: amountMinor }, idempotencyKey);
       return { status: p.status === "refunded" ? "succeeded" : "pending", providerRef: p.id };
     } catch (e) {
-      return { status: "failed", providerRef: null, failureReason: e instanceof Error ? e.message : String(e) };
+      const status = e instanceof AppError ? Number((e.details as { status?: number } | undefined)?.status) : NaN;
+      if (e instanceof AppError && status >= 400 && status < 500 && status !== 408 && status !== 429) {
+        return { status: "failed", providerRef: null, failureReason: e.message };
+      }
+      throw e;
     }
+  }
+  /**
+   * Moyasar refunds are applied to the payment, whose `refunded` field is the cumulative amount returned. The refund is
+   * confirmed once that total covers what we had already confirmed plus this refund. The lookup is a GET: nothing is re-sent.
+   */
+  async fetchRefund(i: RefundLookup): Promise<RefundResult> {
+    const p = await this.call<{ id: string; status: string; refunded?: number | string | null }>("GET", `/payments/${encodeURIComponent(i.paymentId)}`);
+    const refunded = Number(p.refunded ?? 0);
+    // positive evidence only: the cumulative total must cover what is confirmed + this refund (a bare status is not enough,
+    // Moyasar does not document whether a partial refund changes it)
+    const done = Number.isFinite(refunded) && p.refunded != null && refunded >= i.refundedBeforeMinor + i.amountMinor;
+    return { status: done ? "succeeded" : "pending", providerRef: p.id };
   }
   parseWebhook(rawBody: string): WebhookEvent | null {
     let p: { id?: string; type?: string; secret_token?: string; data?: { id?: string; invoice_id?: string | null } };
