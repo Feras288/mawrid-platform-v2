@@ -1,4 +1,5 @@
-import { ArrowLeftRight, Building2, ShoppingBag, Store } from "lucide-react";
+import { ArrowLeftRight, Building2, Heart, MapPin, ShoppingBag, Store } from "lucide-react";
+import { QuickActions } from "@/components/ui/dashboard";
 import { getTranslations } from "next-intl/server";
 import { listUserOrganizations } from "@platform/modules/context";
 import { getMe } from "@platform/modules/identity";
@@ -14,16 +15,16 @@ export default async function AccountHome() {
   return (
     <>
       <PageHeader title={t("account.welcome", { name: me?.name ?? "" })} description={me?.email} />
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="p-5">
-          <Store className="size-6 text-primary-700" aria-hidden />
-          <h2 className="mt-3 font-semibold">{t("account.personalShopping")}</h2>
-          <div className="mt-4 flex gap-2">
-            <Link href="/" className={buttonVariants({ variant: "outline", size: "sm" })}>{t("nav.store")}</Link>
-            <Link href="/account/orders" className={buttonVariants({ variant: "ghost", size: "sm" })}><ShoppingBag />{t("nav.orders")}</Link>
-          </div>
-        </Card>
-        <Card className="md:col-span-2">
+      <div className="space-y-6">
+        <QuickActions
+          items={[
+            { href: "/", label: t("nav.store"), icon: <Store />, primary: true },
+            { href: "/account/orders", label: t("nav.orders"), icon: <ShoppingBag /> },
+            { href: "/account/wishlist", label: t("nav.wishlist"), icon: <Heart /> },
+            { href: "/account/addresses", label: t("nav.addresses"), icon: <MapPin /> },
+          ]}
+        />
+        <Card>
           <CardHeader title={t("account.organizations")} actions={<Link href="/account/organizations" className={buttonVariants({ variant: "outline", size: "sm" })}><ArrowLeftRight />{t("common.manage")}</Link>} />
           <CardBody>
             {orgs.length === 0 ? (

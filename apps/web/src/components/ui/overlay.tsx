@@ -37,16 +37,16 @@ export function Modal({
     <D.Root open={isOpen} onOpenChange={setOpen}>
       {trigger ? <D.Trigger asChild>{trigger}</D.Trigger> : null}
       <D.Portal>
-        <D.Overlay className="fixed inset-0 z-40 bg-ink-900/40 data-[state=open]:animate-in" />
+        <D.Overlay className="fixed inset-0 z-40 bg-ink-900/50 backdrop-blur-[2px] data-[state=open]:animate-in" />
         <D.Content
           className={cn(
-            "fixed start-1/2 top-1/2 z-50 max-h-[90vh] w-[calc(100vw-2rem)] -translate-y-1/2 overflow-y-auto rounded-xl bg-white p-5 shadow-xl ltr:-translate-x-1/2 rtl:translate-x-1/2",
+            "fixed start-1/2 top-1/2 z-50 max-h-[90vh] w-[calc(100vw-2rem)] -translate-y-1/2 overflow-y-auto rounded-2xl border border-sand-200/80 bg-white p-5 shadow-overlay sm:p-6 ltr:-translate-x-1/2 rtl:translate-x-1/2",
             wide ? "max-w-3xl" : "max-w-lg",
           )}
         >
-          <div className="mb-4 flex items-start justify-between gap-4">
+          <div className="mb-5 flex items-start justify-between gap-4 border-b border-sand-100 pb-4">
             <div>
-              <D.Title className="text-lg font-semibold">{title}</D.Title>
+              <D.Title className="text-h3 font-bold text-ink-900">{title}</D.Title>
               {description ? <D.Description className="mt-1 text-sm text-ink-500">{description}</D.Description> : <D.Description className="sr-only">{title}</D.Description>}
             </div>
             <D.Close className="rounded-md p-1 text-ink-500 hover:bg-sand-100" aria-label={closeLabel}>
@@ -67,7 +67,7 @@ export function Menu({ trigger, children, align = "end" }: { trigger: React.Reac
     <DM.Root>
       <DM.Trigger asChild>{trigger}</DM.Trigger>
       <DM.Portal>
-        <DM.Content align={align} sideOffset={6} className="z-50 min-w-48 rounded-lg border border-sand-200 bg-white p-1 shadow-lg">
+        <DM.Content align={align} sideOffset={6} className="z-50 min-w-48 rounded-xl border border-sand-200 bg-white p-1.5 shadow-raised">
           {children}
         </DM.Content>
       </DM.Portal>
@@ -88,12 +88,12 @@ export const MenuSeparator = () => <DM.Separator className="my-1 h-px bg-sand-20
 export function Tabs({ tabs, defaultValue }: { tabs: { value: string; label: React.ReactNode; content: React.ReactNode }[]; defaultValue?: string }) {
   return (
     <T.Root defaultValue={defaultValue ?? tabs[0]?.value}>
-      <T.List className="mb-4 flex gap-1 overflow-x-auto border-b border-sand-200">
+      <T.List className="scrollbar-none mb-5 flex gap-1 overflow-x-auto border-b border-sand-200">
         {tabs.map((t) => (
           <T.Trigger
             key={t.value}
             value={t.value}
-            className="-mb-px whitespace-nowrap border-b-2 border-transparent px-3 py-2 text-sm font-medium text-ink-500 hover:text-ink-900 data-[state=active]:border-primary-700 data-[state=active]:text-primary-800"
+            className="-mb-px whitespace-nowrap border-b-2 border-transparent px-3.5 py-2.5 text-sm font-semibold text-ink-500 hover:text-ink-900 data-[state=active]:border-primary-700 data-[state=active]:text-primary-800"
           >
             {t.label}
           </T.Trigger>

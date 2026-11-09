@@ -125,12 +125,12 @@ export function Field(props: FieldProps) {
       </Label>
       {control}
       {hint ? (
-        <p id={`${id}-hint`} className="text-xs text-ink-500">
+        <p id={`${id}-hint`} className="text-xs leading-5 text-ink-500">
           {hint}
         </p>
       ) : null}
       {errors ? (
-        <p id={`${id}-err`} className="text-xs text-danger-600">
+        <p id={`${id}-err`} className="text-xs font-medium text-danger-600">
           {errors.join(" ")}
         </p>
       ) : null}

@@ -1801,5 +1801,136 @@
   "privacy": "Privacy policy",
   "returns": "Returns policy",
   "seller-terms": "Seller terms"
+ },
+ "ux": {
+  "trust": {
+   "verified": "Verified suppliers",
+   "vat": "VAT invoice from every supplier",
+   "delivery": "Delivery across Saudi cities",
+   "b2b": "Business pricing & RFQs"
+  },
+  "allCategories": "All categories",
+  "searchIn": "Search in",
+  "departments": "Departments",
+  "hero": {
+   "eyebrow": "Building materials & MEP sourcing",
+   "proof1": "Compare several suppliers for the same item",
+   "proof2": "Clear prices before and after VAT",
+   "proof3": "A full procurement workflow for projects",
+   "systems": "{count} engineering systems",
+   "searchLabel": "Search the catalog",
+   "popular": "Popular searches",
+   "popularTerms": "cable,pipe,breaker,valve,pump"
+  },
+  "shopBySystem": "Shop by system",
+  "shopBySystemHint": "Nine systems that cover a project from foundations to handover",
+  "viewAll": "View all",
+  "latestHint": "Newest listings from approved suppliers",
+  "b2b": {
+   "eyebrow": "For companies & contractors",
+   "title": "From bill of quantities to purchase order in one flow",
+   "body": "Upload your BOQ, request quotations from selected suppliers, compare offers line by line, then approve, issue purchase orders and track delivery.",
+   "step1": "Bill of quantities",
+   "step1Body": "Items extracted and matched to the catalog",
+   "step2": "Request for quotation",
+   "step2Body": "Sent to approved suppliers with a delivery log",
+   "step3": "Compare & award",
+   "step3Body": "Comparison matrix and per-line awards",
+   "step4": "Approval & purchase order",
+   "step4Body": "Multi-step approvals and PDF purchase orders",
+   "cta": "Start a project"
+  },
+  "supplierCta": {
+   "title": "Are you a supplier?",
+   "body": "List your products for buyers and receive RFQs from companies.",
+   "cta": "Register as a supplier"
+  },
+  "footer": {
+   "about": "A Saudi marketplace for building materials and MEP systems that brings buyers and approved suppliers onto one platform.",
+   "shop": "Shop",
+   "business": "Business",
+   "policies": "Policies",
+   "rights": "© {year} All rights reserved."
+  },
+  "list": {
+   "activeFilters": "Active filters",
+   "removeFilter": "Remove filter: {label}",
+   "category": "Category",
+   "price": "Price",
+   "showing": "Showing {from}–{to}",
+   "searchFor": "Results for “{q}”",
+   "tryAgain": "Try different words or remove some filters."
+  },
+  "card": {
+   "verified": "Verified supplier",
+   "perUnit": "per {unit}",
+   "viewProduct": "View product"
+  },
+  "pdp": {
+   "seller": "Seller",
+   "verifiedNote": "Approved after document verification",
+   "trustInvoice": "Tax invoice issued by the supplier",
+   "trustPayment": "Secure payment via a licensed provider",
+   "trustReturns": "Returns under the return policy",
+   "noImage": "No supplier photos for this product yet",
+   "bulk": "Project quantities? Request a quotation from the procurement portal."
+  },
+  "cart": {
+   "summary": "Order summary",
+   "recheck": "Prices and stock are re-checked at checkout.",
+   "items": "{count} items"
+  },
+  "steps": {
+   "label": "Checkout steps",
+   "review": "Review items",
+   "delivery": "Delivery & payment",
+   "confirm": "Confirmation"
+  },
+  "navGroups": {
+   "overview": "Overview",
+   "buying": "Buying",
+   "sourcing": "Sourcing",
+   "catalog": "Catalog",
+   "sales": "Sales",
+   "organization": "Organization",
+   "insights": "Insights",
+   "commerce": "Commerce",
+   "operations": "Operations",
+   "governance": "Governance",
+   "account": "Account",
+   "settings": "Settings"
+  },
+  "portal": {
+   "backToStore": "Back to store",
+   "workspace": "Workspace",
+   "organizations": "Organizations"
+  },
+  "dash": {
+   "quickActions": "Quick actions",
+   "newProject": "New project",
+   "uploadBoq": "Upload a BOQ",
+   "newRfq": "Request quotations",
+   "reviewApprovals": "Review approvals",
+   "recentRfqs": "Recent RFQs",
+   "recentPos": "Recent purchase orders",
+   "incomingRfqs": "Latest incoming RFQs",
+   "viewAll": "View all",
+   "cycle": "Procurement cycle",
+   "cycleHint": "Every step is audited; nothing is approved without a human decision.",
+   "addProduct": "Add product",
+   "importProducts": "Import products",
+   "checklist": "Account readiness",
+   "checklistHint": "Complete these steps so buyers can see your products and send you RFQs.",
+   "stepProfile": "Submit your company profile for verification",
+   "stepDocuments": "Upload compliance documents",
+   "stepApproved": "Supplier approval by the platform",
+   "stepProduct": "Add your first product",
+   "stepPublished": "Publish a product in the store",
+   "done": "Done",
+   "pending": "Pending",
+   "supplierQueue": "Supplier review queue",
+   "adminShortcuts": "Admin shortcuts",
+   "salesByMonth": "Monthly sales"
+  }
  }
 }

@@ -70,25 +70,43 @@ export default async function ComparePage({ params, searchParams }: { params: Pr
         </Card>
       ) : (
         <>
-          <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
-            <span className="text-ink-500">{t("compare.sortBy")}:</span>
-            {SORTS.map((s) => (
-              <Link key={s} href={`/org/rfqs/${id}/compare?sort=${s}`} className={sort === s ? "font-semibold text-primary-700" : "text-ink-600 hover:underline"}>
-                {t(`compare.sort.${s}`)}
-              </Link>
-            ))}
+          <div className="mb-4 flex flex-wrap items-center gap-3 text-sm">
+            <span className="text-xs font-bold text-ink-600">{t("compare.sortBy")}</span>
+            <div className="inline-flex rounded-xl border border-sand-200 bg-white p-1 shadow-xs">
+              {SORTS.map((s) => (
+                <Link
+                  key={s}
+                  href={`/org/rfqs/${id}/compare?sort=${s}`}
+                  aria-current={sort === s ? "true" : undefined}
+                  className={sort === s ? "rounded-lg bg-primary-700 px-3 py-1.5 text-xs font-semibold text-white" : "rounded-lg px-3 py-1.5 text-xs font-medium text-ink-600 hover:bg-sand-100"}
+                >
+                  {t(`compare.sort.${s}`)}
+                </Link>
+              ))}
+            </div>
           </div>
           <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {suppliers.map((s) => (
-              <Card key={s.supplierOrgId} className="p-4">
-                <h3 className="font-semibold">{localized(s, ctx.locale)}</h3>
-                <p className="text-xs text-ink-500">{t("quote.version", { v: s.version })}</p>
+            {suppliers.map((s, i) => (
+              <Card key={s.supplierOrgId} className={`relative overflow-hidden p-5 ${s.lowestCompleteTotal ? "border-success-600/40 ring-1 ring-success-600/20" : ""}`}>
+                {s.lowestCompleteTotal ? <span className="absolute inset-x-0 top-0 h-1 bg-success-600" aria-hidden /> : null}
+                <div className="flex items-start gap-3">
+                  <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-sand-100 text-sm font-extrabold text-ink-700 tabular-nums" aria-hidden>
+                    {i + 1}
+                  </span>
+                  <div className="min-w-0">
+                    <h3 className="truncate font-bold text-ink-900">{localized(s, ctx.locale)}</h3>
+                    <p className="text-xs text-ink-500">{t("quote.version", { v: s.version })}</p>
+                  </div>
+                </div>
+                <p className="mt-3 text-[1.375rem] leading-tight font-extrabold text-ink-900" dir="ltr">
+                  {money(s.total)}
+                </p>
                 <div className="mt-2 flex flex-wrap gap-1">
                   {s.lowestCompleteTotal ? <Flag tone="success">{t("compare.lowestComplete")}</Flag> : null}
                   {s.bestCoverage ? <Flag tone="info">{t("compare.bestCoverage")}</Flag> : null}
                   {s.expired ? <Flag tone="danger">{t("compare.expired")}</Flag> : null}
                 </div>
-                <dl className="mt-3 grid grid-cols-2 gap-y-1 text-sm">
+                <dl className="mt-3 grid grid-cols-2 gap-y-1.5 border-t border-sand-100 pt-3 text-sm">
                   <dt className="text-ink-500">{t("quote.total")}</dt>
                   <dd className="font-semibold">{money(s.total)}</dd>
                   <dt className="text-ink-500">{t("quote.vatTotal")}</dt>
@@ -104,26 +122,29 @@ export default async function ComparePage({ params, searchParams }: { params: Pr
                   <dt className="text-ink-500">{t("compare.validity")}</dt>
                   <dd>{s.validUntil ? f.dateTime(s.validUntil, "short") : "—"}</dd>
                 </dl>
-                {s.exceptions ? <p className="mt-2 rounded bg-warning-50 p-2 text-xs text-warning-600">{s.exceptions}</p> : null}
+                {s.exceptions ? <p className="mt-3 rounded-lg bg-warning-50 p-2.5 text-xs leading-5 text-warning-600">{s.exceptions}</p> : null}
                 {s.paymentTerms ? <p className="mt-1 text-xs text-ink-500">{s.paymentTerms}</p> : null}
               </Card>
             ))}
           </div>
-          <Card>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[56rem] border-collapse text-sm">
+          <Card className="overflow-hidden">
+            <div className="max-h-[75vh] overflow-auto">
+              <table className="w-full min-w-[56rem] border-separate border-spacing-0 text-sm">
                 <caption className="sr-only">{t("compare.title")}</caption>
-                <thead className="bg-sand-50 text-xs text-ink-600">
+                <thead className="text-xs text-ink-600">
                   <tr>
-                    <th scope="col" className="sticky start-0 bg-sand-50 p-2 text-start">
+                    <th scope="col" className="sticky start-0 top-0 z-20 min-w-64 border-e border-b border-sand-200 bg-sand-100 px-4 py-3 text-start font-bold">
                       {t("boq.description")}
                     </th>
                     {suppliers.map((s) => (
-                      <th key={s.supplierOrgId} scope="col" className="p-2 text-start">
-                        {localized(s, ctx.locale)}
+                      <th key={s.supplierOrgId} scope="col" className="sticky top-0 z-10 min-w-48 border-b border-sand-200 bg-sand-100 px-4 py-3 text-start align-bottom">
+                        <span className="block text-[0.8125rem] font-bold text-ink-900">{localized(s, ctx.locale)}</span>
+                        <span className="mt-0.5 block font-semibold text-ink-500" dir="ltr">
+                          {money(s.total)}
+                        </span>
                       </th>
                     ))}
-                    <th scope="col" className="p-2 text-start">
+                    <th scope="col" className="sticky top-0 z-10 border-s border-b border-sand-200 bg-sand-100 px-4 py-3 text-start font-bold">
                       {t("compare.award")}
                     </th>
                   </tr>
@@ -132,12 +153,12 @@ export default async function ComparePage({ params, searchParams }: { params: Pr
                   {rows.map((r) => {
                     const current = award.lines.find((l) => l.rfqItemId === r.line.id);
                     return (
-                      <tr key={r.line.id} className="border-t border-sand-200 align-top">
-                        <th scope="row" className="sticky start-0 max-w-xs bg-white p-2 text-start font-normal">
-                          <span className="text-xs text-ink-500" dir="ltr">
+                      <tr key={r.line.id} className="group align-top">
+                        <th scope="row" className="sticky start-0 z-[5] max-w-xs border-e border-b border-sand-200 bg-white px-4 py-3 text-start font-normal group-hover:bg-sand-50">
+                          <span className="inline-block rounded bg-sand-100 px-1.5 py-0.5 text-[11px] font-semibold text-ink-600" dir="ltr">
                             #{r.line.lineNo} · {Number(r.line.quantity)} {r.line.unit}
                           </span>
-                          <span className="block">{r.line.description}</span>
+                          <span className="mt-1 block font-medium text-ink-900">{r.line.description}</span>
                           {r.spreadPct !== null ? (
                             <span className="text-xs text-ink-500">
                               {t("compare.spread")}: {r.spreadPct}%
@@ -149,13 +170,13 @@ export default async function ComparePage({ params, searchParams }: { params: Pr
                           const ev = evals.find((e) => e.rfqItemId === r.line.id && e.supplierOrgId === s.supplierOrgId);
                           if (!c || !c.offered)
                             return (
-                              <td key={s.supplierOrgId} className="p-2 text-xs text-ink-400">
+                              <td key={s.supplierOrgId} className="border-b border-sand-100 bg-sand-50/60 px-4 py-3 text-xs text-ink-500 italic">
                                 {t("compare.notOffered")}
                               </td>
                             );
                           return (
-                            <td key={s.supplierOrgId} className={`p-2 ${current?.supplierOrgId === s.supplierOrgId ? "bg-success-50" : ""}`}>
-                              <div className="font-semibold" dir="ltr">
+                            <td key={s.supplierOrgId} className={`border-b border-sand-100 px-4 py-3 ${current?.supplierOrgId === s.supplierOrgId ? "bg-success-50 shadow-[inset_0_0_0_2px_var(--color-success-600)]" : c.lowestPrice ? "bg-primary-50/40" : "bg-white"}`}>
+                              <div className="text-[0.9375rem] font-bold text-ink-900" dir="ltr">
                                 {money(c.unitPrice)}
                               </div>
                               <div className="text-xs text-ink-500">
@@ -180,7 +201,7 @@ export default async function ComparePage({ params, searchParams }: { params: Pr
                             </td>
                           );
                         })}
-                        <td className="min-w-44 p-2">
+                        <td className="min-w-48 border-s border-b border-sand-200 bg-sand-50/60 px-4 py-3">
                           <AwardLineForm
                             rfqId={id}
                             rfqItemId={r.line.id}

@@ -1,5 +1,8 @@
 import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
+import { extendTailwindMerge } from "tailwind-merge";
+
+// custom type-scale tokens (globals.css) must merge as font sizes, not colours
+const twMerge = extendTailwindMerge({ extend: { theme: { text: ["display", "h1", "h2", "h3", "body", "caption"] } } });
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));

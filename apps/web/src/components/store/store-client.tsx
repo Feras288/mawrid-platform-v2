@@ -43,23 +43,25 @@ export function AddToCart({ productId, moq, step, disabled, signedIn }: { produc
   const n = (v: string) => Number(v) || 0;
   if (!signedIn)
     return (
-      <Button onClick={() => router.push("/login")} className="w-full sm:w-auto">
+      <Button size="lg" onClick={() => router.push("/login")} className="w-full sm:w-auto sm:min-w-56">
         {t("signInToBuy")}
       </Button>
     );
   return (
-    <div className="flex flex-wrap items-end gap-2">
-      <div className="flex items-center rounded-lg border border-sand-300">
+    <div className="flex w-full flex-wrap items-stretch gap-2">
+      <div className="flex h-12 items-center rounded-xl border border-sand-300 bg-white px-1 shadow-xs">
         <Button variant="ghost" size="icon" aria-label="-" onClick={() => setQty(String(Math.max(n(moq), n(qty) - n(step))))} disabled={disabled || n(qty) <= n(moq)}>
           <Minus />
         </Button>
-        <Input aria-label={t("quantity")} value={qty} onChange={(e) => setQty(e.target.value)} inputMode="decimal" className="h-9 w-20 border-0 text-center" dir="ltr" />
+        <Input aria-label={t("quantity")} value={qty} onChange={(e) => setQty(e.target.value)} inputMode="decimal" className="h-10 w-16 border-0 text-center text-base font-semibold shadow-none focus-visible:ring-0" dir="ltr" />
         <Button variant="ghost" size="icon" aria-label="+" onClick={() => setQty(String(n(qty) + n(step)))} disabled={disabled}>
           <Plus />
         </Button>
       </div>
       <Button
         variant="accent"
+        size="lg"
+        className="min-w-44 flex-1"
         disabled={disabled || pending}
         aria-busy={pending}
         onClick={() =>
@@ -151,17 +153,20 @@ export function CheckoutForm({ addresses, addressId, groups, methods, canSubmit,
       <FormError />
       <input type="hidden" name="idempotencyKey" value={key} />
       <fieldset className="space-y-2">
-        <legend className="mb-1 font-semibold">{t("deliverTo")}</legend>
+        <legend className="mb-2 text-sm font-bold text-ink-900">{t("deliverTo")}</legend>
         {addresses.map((a) => (
-          <label key={a.value} className="flex items-start gap-2 rounded-lg border border-sand-200 p-3 text-sm has-[:checked]:border-primary-600 has-[:checked]:bg-primary-50">
+          <label key={a.value} className="flex cursor-pointer items-start gap-3 rounded-xl border border-sand-200 bg-white p-3.5 text-sm transition-colors hover:border-sand-300 has-[:checked]:border-primary-600 has-[:checked]:bg-primary-50/60 has-[:checked]:ring-1 has-[:checked]:ring-primary-600">
             <input type="radio" name="addressId" value={a.value} defaultChecked={a.value === addressId} onChange={() => onCity(a.value)} className="mt-1 accent-primary-700" required />
             <span>{a.label}</span>
           </label>
         ))}
       </fieldset>
       {groups.map((g) => (
-        <fieldset key={g.supplierOrgId} className="space-y-2">
-          <legend className="mb-1 font-semibold">{t("shipmentFrom", { supplier: g.supplierName })}</legend>
+        <fieldset key={g.supplierOrgId} className="space-y-2 rounded-xl border border-sand-200 bg-sand-50/60 p-4">
+          <legend className="sr-only">{t("shipmentFrom", { supplier: g.supplierName })}</legend>
+          <p className="text-sm font-bold text-ink-900" aria-hidden>
+            {t("shipmentFrom", { supplier: g.supplierName })}
+          </p>
           <input type="hidden" name="supplierOrgId[]" value={g.supplierOrgId} />
           {g.options.length === 0 ? (
             <p className="text-sm text-danger-600">{t("noShipping")}</p>
@@ -177,16 +182,16 @@ export function CheckoutForm({ addresses, addressId, groups, methods, canSubmit,
         </fieldset>
       ))}
       <fieldset className="space-y-2">
-        <legend className="mb-1 font-semibold">{t("payment")}</legend>
+        <legend className="mb-2 text-sm font-bold text-ink-900">{t("payment")}</legend>
         {!methods.card && !methods.bankTransfer ? <p className="text-sm text-warning-600">{t("paymentUnavailable")}</p> : null}
         {methods.card ? (
-          <label className="flex items-center gap-2 text-sm">
+          <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-sand-200 bg-white p-3.5 text-sm font-medium has-[:checked]:border-primary-600 has-[:checked]:bg-primary-50/60 has-[:checked]:ring-1 has-[:checked]:ring-primary-600">
             <input type="radio" name="paymentMethod" value="card" defaultChecked className="accent-primary-700" />
             {t("card")}
           </label>
         ) : null}
         {methods.bankTransfer ? (
-          <label className="flex items-center gap-2 text-sm">
+          <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-sand-200 bg-white p-3.5 text-sm font-medium has-[:checked]:border-primary-600 has-[:checked]:bg-primary-50/60 has-[:checked]:ring-1 has-[:checked]:ring-primary-600">
             <input type="radio" name="paymentMethod" value="bank_transfer" defaultChecked={!methods.card} className="accent-primary-700" />
             {t("bankTransfer")}
           </label>

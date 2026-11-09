@@ -77,6 +77,8 @@ const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   privacy: Lock,
 };
 
+export type NavGroup = { label: string | null; items: { href: string; label: string; icon: string }[] };
+
 export function NavLink({ href, icon, children, onNavigate }: { href: string; icon: string; children: React.ReactNode; onNavigate?: () => void }) {
   const pathname = usePathname();
   const active = pathname === href || (href.split("/").length > 2 && pathname.startsWith(`${href}/`));
@@ -87,17 +89,38 @@ export function NavLink({ href, icon, children, onNavigate }: { href: string; ic
       onClick={onNavigate}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-ink-600 hover:bg-sand-100 hover:text-ink-900",
-        active && "bg-primary-50 text-primary-800 hover:bg-primary-50",
+        "group relative flex items-center gap-3 rounded-lg px-3 py-2 text-[0.8125rem] font-medium text-primary-100/85 transition-colors hover:bg-white/[0.06] hover:text-white",
+        active && "bg-white/10 font-semibold text-white hover:bg-white/10",
       )}
     >
-      <Icon className="size-4 shrink-0" />
+      {active ? <span className="absolute inset-y-1.5 start-0 w-1 rounded-full bg-accent-300" aria-hidden /> : null}
+      <Icon className={cn("size-[1.0625rem] shrink-0 text-primary-300 group-hover:text-primary-100", active && "text-accent-200 group-hover:text-accent-200")} />
       <span className="truncate">{children}</span>
     </Link>
   );
 }
 
-export function MobileNav({ title, items }: { title: string; items: { href: string; label: string; icon: string }[] }) {
+/** Sidebar navigation, grouped by area. Used in the desktop sidebar and the mobile drawer. */
+export function NavGroups({ label, groups, onNavigate }: { label: string; groups: NavGroup[]; onNavigate?: () => void }) {
+  return (
+    <nav aria-label={label} className="flex flex-col gap-5">
+      {groups.map((g, i) => (
+        <div key={g.label ?? i}>
+          {g.label ? <p className="mb-1.5 px-3 text-[11px] font-bold tracking-wide text-primary-300 uppercase">{g.label}</p> : null}
+          <div className="flex flex-col gap-0.5">
+            {g.items.map((it) => (
+              <NavLink key={it.href} href={it.href} icon={it.icon} onNavigate={onNavigate}>
+                {it.label}
+              </NavLink>
+            ))}
+          </div>
+        </div>
+      ))}
+    </nav>
+  );
+}
+
+export function MobileNav({ title, groups, brand, footer }: { title: string; groups: NavGroup[]; brand?: React.ReactNode; footer?: React.ReactNode }) {
   const [open, setOpen] = React.useState(false);
   return (
     <D.Root open={open} onOpenChange={setOpen}>
@@ -105,22 +128,20 @@ export function MobileNav({ title, items }: { title: string; items: { href: stri
         <Menu className="size-5" />
       </D.Trigger>
       <D.Portal>
-        <D.Overlay className="fixed inset-0 z-40 bg-ink-900/40" />
-        <D.Content className="fixed inset-y-0 start-0 z-50 w-72 overflow-y-auto bg-white p-4 shadow-xl">
-          <div className="mb-4 flex items-center justify-between">
-            <D.Title className="text-sm font-semibold text-ink-500">{title}</D.Title>
-            <D.Close className="rounded-md p-1 hover:bg-sand-100" aria-label="Close">
+        <D.Overlay className="fixed inset-0 z-40 bg-ink-900/50 backdrop-blur-[2px]" />
+        <D.Content className="fixed inset-y-0 start-0 z-50 flex w-72 max-w-[85vw] flex-col overflow-y-auto bg-primary-950 shadow-overlay">
+          <div className="flex h-16 shrink-0 items-center justify-between border-b border-white/10 px-4">
+            {brand}
+            <D.Close className="rounded-md p-1.5 text-primary-100 hover:bg-white/10" aria-label="Close">
               <X className="size-5" />
             </D.Close>
           </div>
+          <D.Title className="px-6 pt-4 text-xs font-semibold text-primary-200">{title}</D.Title>
           <D.Description className="sr-only">{title}</D.Description>
-          <nav className="flex flex-col gap-0.5">
-            {items.map((it) => (
-              <NavLink key={it.href} href={it.href} icon={it.icon} onNavigate={() => setOpen(false)}>
-                {it.label}
-              </NavLink>
-            ))}
-          </nav>
+          <div className="flex-1 px-3 py-3">
+            <NavGroups label={title} groups={groups} onNavigate={() => setOpen(false)} />
+          </div>
+          {footer}
         </D.Content>
       </D.Portal>
     </D.Root>

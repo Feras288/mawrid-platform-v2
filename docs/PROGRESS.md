@@ -123,3 +123,4 @@ FINAL_AUDIT.md written. Next steps belong to the owner (decisions, accounts, sta
 - 2026-11-09: Phase 9 complete (build/deploy artifacts, performance targets met, hardening, portal sweep).
 - 2026-11-09: Phase 10 complete — FINAL_AUDIT.md; tests: unit 72, integration 56, E2E 23 (store spec re-run after final fix).
 - 2026-11-09: Release verification — unit 72, integration 61, E2E 23/23 (clean run); fixed suspended-organization visibility, build-time DATABASE_URL dependency, web TypeScript dependency; RELEASE_READINESS.md.
+- 2026-11-09: UI/UX redesign (design system, store, portals, dashboards, RFQ comparison) — no API/business-logic changes; VISUAL_AUDIT.md, DESIGN_SYSTEM.md, UI_UX_FINAL_REPORT.md; tests: unit 72, integration 61, E2E 23/23 (clean run).

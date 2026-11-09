@@ -23,7 +23,7 @@ export default async function PrivacyPage() {
             {(["terms", "privacy_policy"] as const).map((k) => (
               <div key={k} className="flex items-center justify-between gap-2">
                 <span>
-                  <Link href={`/legal/${k === "terms" ? "terms" : "privacy"}`} className="text-primary-700 hover:underline">
+                  <Link href={`/legal/${k === "terms" ? "terms" : "privacy"}`} className="text-primary-700 underline underline-offset-2 hover:text-primary-800">
                     {t(`legal.${k === "terms" ? "terms" : "privacy"}`)}
                   </Link>{" "}
                   <span className="text-xs text-ink-500">({t("privacy.version", { v: p.policyVersions[k] })})</span>
