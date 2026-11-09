@@ -20,7 +20,7 @@ export function UserMenu({ name, activeOrgId, activeOrgLabel, orgs, isAdmin }: {
   return (
     <Menu
       trigger={
-        <button type="button" className="inline-flex max-w-56 items-center gap-2 rounded-lg border border-sand-200 px-3 py-1.5 text-sm hover:bg-sand-100">
+        <button type="button" className="inline-flex max-w-32 items-center gap-2 rounded-lg border border-sand-200 px-2 py-1.5 text-sm hover:bg-sand-100 sm:max-w-56 sm:px-3" aria-label={activeOrgLabel}>
           <Building2 className="size-4 text-ink-500" aria-hidden />
           <span className="truncate">{activeOrgLabel}</span>
           <ChevronDown className="size-4 text-ink-400" aria-hidden />

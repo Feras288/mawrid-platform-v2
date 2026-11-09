@@ -168,6 +168,7 @@ export const supplierProducts = pgTable(
     index("supplier_products_category_idx").on(t.categoryId, t.status),
     index("supplier_products_name_trgm_idx").using("gin", sql`${t.normalizedName} gin_trgm_ops`),
     index("supplier_products_sku_trgm_idx").using("gin", sql`${t.sku} gin_trgm_ops`),
+    index("supplier_products_sku_lower_idx").on(sql`lower(${t.sku})`),
     index("supplier_products_brand_lower_idx").on(sql`lower(coalesce(${t.brandName}, ''))`),
     index("supplier_products_store_newest_idx").on(t.createdAt.desc(), t.id).where(sql`${t.isPublished} and ${t.status} = 'active' and ${t.storePrice} is not null`),
     index("supplier_products_store_idx").on(t.isPublished, t.status),

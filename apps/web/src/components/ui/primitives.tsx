@@ -67,7 +67,7 @@ export function Checkbox({ className, label, ...props }: React.InputHTMLAttribut
 
 // ---------------------------------------------------------------------------------- Layout bits
 export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("rounded-[var(--radius-card)] border border-sand-200 bg-white shadow-xs", className)} {...props} />;
+  return <div className={cn("min-w-0 rounded-[var(--radius-card)] border border-sand-200 bg-white shadow-xs", className)} {...props} />;
 }
 export function CardHeader({ className, title, description, actions }: { className?: string; title: React.ReactNode; description?: React.ReactNode; actions?: React.ReactNode }) {
   return (

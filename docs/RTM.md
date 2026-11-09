@@ -9,7 +9,7 @@ completion from this table).
 | ID | Requirement (brief §) | Module | Acceptance criterion | Tests | Status |
 |---|---|---|---|---|---|
 | REQ-GEN-01 | Arabic & English UIs (§0, §3.1) | web/i18n | All visible strings from messages; RTL/LTR switch | e2e foundation (RTL/LTR), messages.unit (catalog parity); all E2E specs run in ar and en | Tested |
-| REQ-GEN-02 | Brand decoupled from code (§0) | all | No brand in tables/APIs; brand from env | review: package scope @platform/*, brand from BRAND_NAME_* env | Implemented |
+| REQ-GEN-02 | Brand decoupled from code (§0) | all | No brand in tables/APIs; brand from env | brand.unit (no brand in code/SQL/tables/API paths outside the brand helper; neutral package scope) | Tested |
 | REQ-ARC-01 | Modular monolith with module boundaries (§2.1, §2.3) | all | ESLint boundary rule passes | eslint no-restricted-imports boundary rule (pnpm lint clean) | Tested |
 | REQ-ARC-02 | TS strict, Next, Tailwind, Postgres, Drizzle, Zod, Redis/BullMQ, Vitest, Playwright, Docker (§2.2) | infra | Stack in place, builds | pnpm typecheck/lint/test/test:integration/test:e2e | Tested |
 | REQ-DAT-01 | Traceable migrations (§2.4) | db | Migrator applies from scratch, checksums | integration globalSetup migrates platform_test from scratch each run | Tested |
@@ -21,10 +21,10 @@ completion from this table).
 | REQ-DAT-07 | Historical change records (§2.4) | various | Revisions/events tables | boq.int item revisions & versions; procurement.int quotation versions, award history, po_events | Tested |
 | REQ-DAT-08 | Job de-duplication (§2.4) | worker | Deterministic job ids | infra.int outbox dedupe; job_runs recording | Tested |
 | REQ-DAT-09 | Outbox pattern (§2.4) | core/db | Event written in tx, dispatched once | infra.int outbox | Tested |
-| REQ-UX-01 | Separate experiences: store, account, org, supplier, admin (§3.2) | web | 5 portal layouts | e2e nav | Not Implemented |
-| REQ-UX-02 | Responsive, typography, Arabic fonts (§3.3) | web | Mobile/desktop screenshots | e2e mobile | Not Implemented |
-| REQ-UX-03 | Loading/empty/error/success states (§3.3) | web | Components used on all lists | review: EmptyState/Spinner/Alert/toasts on implemented pages (store/admin pending) | Implemented |
-| REQ-UX-04 | Keyboard nav, ARIA, focus, reduced motion (§3.3) | web | axe: no serious violations | axe (no serious/critical): auth pages, analytics, price index (ar), admin console; full portal sweep in Phase 9 | Implemented |
+| REQ-UX-01 | Separate experiences: store, account, org, supplier, admin (§3.2) | web | 5 portal layouts | e2e portals.spec: store, account, org, supplier portals (+ admin in admin.spec) render in ar/en | Tested |
+| REQ-UX-02 | Responsive, typography, Arabic fonts (§3.3) | web | Mobile/desktop screenshots | e2e portals.spec @mobile (Pixel 7): no horizontal overflow on 37 pages × 2 languages; IBM Plex Sans Arabic / Inter | Tested |
+| REQ-UX-03 | Loading/empty/error/success states (§3.3) | web | Components used on all lists | empty/loading/error/success states on all lists; error boundary; portal sweep asserts no error page | Tested |
+| REQ-UX-04 | Keyboard nav, ARIA, focus, reduced motion (§3.3) | web | axe: no serious violations | axe (wcag2a/aa, no serious/critical) on every portal page in ar and en (portals.spec), admin console, auth pages | Tested |
 | REQ-UX-05 | No fake working buttons (§3.3) | web | Disabled + reason when unavailable | review: unavailable actions are disabled with reason (payments unconfigured, payouts locked, supplier-cannot-buy, break-glass read-only) | Implemented |
 | REQ-UX-06 | Locale-aware dates/numbers/currency (§3.1) | i18n | Formatters per locale | next-intl formatters (dates, numbers, SAR currency) on all pages | Implemented |
 | REQ-AUT-01 | Account types & roles (§4.1) | authz | Role templates for all 11 types | foundation.unit role templates cover every account type | Tested |
@@ -44,7 +44,7 @@ completion from this table).
 | REQ-SUP-02 | Supplier verification states; upload ≠ verified (§6.2) | suppliers | State machine + admin review | suppliers.int lifecycle + DB triggers | Tested |
 | REQ-SUP-03 | Pricing types: retail, enterprise, special qty, MOQ, units, discounts, validity, region, stock, lead time (§6.3) | supplier-products | Price resolution tests | pricing.unit, suppliers.int | Tested |
 | REQ-CAT-01 | Canonical vs supplier product (§7.1) | catalog | Separate entities + linking | suppliers.int | Tested |
-| REQ-CAT-02 | 9 systems, extensible taxonomy (§7.2) | catalog | Seeded roots; admin CRUD | reference sync seeds 9 roots; admin catalog page | Implemented |
+| REQ-CAT-02 | 9 systems, extensible taxonomy (§7.2) | catalog | Seeded roots; admin CRUD | reference sync seeds 9 systems / 57 subcategories; admin category CRUD; store category tree | Tested |
 | REQ-CAT-03 | Dynamic engineering attributes per category (§7.3) | catalog | Attribute defs per category | pricing.unit attribute normalization; e2e supplier dynamic attributes | Tested |
 | REQ-CAT-04 | Data quality: dedupe, validation, provenance, bulk import, no auto-merge (§7.4) | catalog | Duplicate candidates; import report | suppliers.int duplicates never auto-merged, bulk import report | Tested |
 | REQ-BOQ-01 | Inputs XLSX, CSV, text PDF, scanned PDF, images, multi-page (§8.1) | boq | Each format processed or clearly routed | boq.int XLSX/PDF/images→manual; OCR via OCR_LANG_PATH (Known Limitation: Arabic OCR accuracy) | Tested |
@@ -83,13 +83,13 @@ completion from this table).
 | REQ-CMP-03 | PDPL: privacy notice, consents, retention, data rights (§16) | privacy | Export/deletion requests | admin.int privacy (consents, export visible only to owner, deletion reject/approve with anonymization & legal retention); e2e admin.spec (consent toggle, export download). Legal texts are drafts (DEC-10) | Tested |
 | REQ-ADM-01 | Super admin features list (§17) | admin | Each page live | admin.int (users, orgs, settings, content, break-glass); e2e admin.spec (all 15 admin sections render, axe, settings secrecy, content publish, break-glass) | Tested |
 | REQ-ADM-02 | No unrestricted admin access to confidential docs; break-glass logged (§17) | admin/RLS | Tests | admin.int (no access without grant; reasoned, time-boxed, read-only, owners notified, audited, revocable, expiry); e2e admin.spec (read-only banner) | Tested |
-| REQ-QA-01 | Test types (§18.1) | tests | Suites exist & pass | CI | Not Implemented |
-| REQ-QA-02 | 17 critical scenarios (§18.2) | tests | Each mapped to a test | e2e/integration | Not Implemented |
-| REQ-PRF-01 | Pagination, indexing, caching, jobs, retries, timeouts, error boundaries, logging, health, graceful shutdown (§19) | all | Present | review | Not Implemented |
-| REQ-PRF-02 | Measured performance vs targets (§19) | — | Results in TEST_REPORT | perf scripts | Not Implemented |
-| REQ-OPS-01 | Environments separation (§20.1) | config | APP_ENV + separate env files | env.ts APP_ENV guards; mock adapters refuse production | Implemented |
-| REQ-OPS-02 | Dockerfiles, compose, env example, health, deploy, migrations, backup/restore (§20.2) | infra | Build & run | docker build | Not Implemented |
-| REQ-OPS-03 | CI pipeline (§20.3) | .github | Workflow passes locally-equivalent | .github/workflows/ci.yml | Implemented |
+| REQ-QA-01 | Test types (§18.1) | tests | Suites exist & pass | Vitest unit (72) + integration on real Postgres as app_user (55) + Playwright E2E incl. axe (portal sweep); CI workflow (typecheck, lint, unit, migration drift, integration, audit, build, images) | Tested |
+| REQ-QA-02 | 17 critical scenarios (§18.2) | tests | Each mapped to a test | All 17 scenarios mapped below to passing tests (E2E for 1–13, integration for 14–17) | Tested |
+| REQ-PRF-01 | Pagination, indexing, caching, jobs, retries, timeouts, error boundaries, logging, health, graceful shutdown (§19) | all | Present | pagination on all lists, indexes (trigram, partial, expression), caching (brand facet, settings), BullMQ jobs with retries/backoff, timeouts on provider calls, error boundaries, structured logs, /api/health + /api/ready + worker health, graceful shutdown | Tested |
+| REQ-PRF-02 | Measured performance vs targets (§19) | — | Results in TEST_REPORT | scripts/perf/run.ts — all 5 targets met at 100k products (see TEST_REPORT Performance) | Tested |
+| REQ-OPS-01 | Environments separation (§20.1) | config | APP_ENV + separate env files | APP_ENV guards (env.ts), seed/perf refuse non-dev, test providers refuse production, payouts locked in production | Tested |
+| REQ-OPS-02 | Dockerfiles, compose, env example, health, deploy, migrations, backup/restore (§20.2) | infra | Build & run | Dockerfiles, Coolify compose, migrate one-shot, health checks, backup/restore (drill passed), DEPLOYMENT.md; native equivalents of every image step verified; local image build blocked by Docker VM network timeouts (CI builds images) | Implemented |
+| REQ-OPS-03 | CI pipeline (§20.3) | .github | Workflow passes locally-equivalent | .github/workflows/ci.yml (checks + images jobs); not executed on GitHub (no remote push by policy) | Implemented |
 | REQ-DOC-01 | Docs set + context protocol (§21) | docs | Files exist & current | review | Implemented |
 
 ## Critical scenario mapping (§18.2)

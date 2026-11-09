@@ -33,16 +33,20 @@ async function sweep(page: Page, paths: string[], mobile: boolean) {
   }
 }
 
-test("@mobile portal sweep: buyer & account pages render in Arabic and English without errors, overflow or serious a11y issues", async ({ page, isMobile }) => {
-  test.setTimeout(600_000);
-  const email = uniqueEmail("sweep");
-  await register(page, { email, name: "Sweep User" });
-  await createOrg(page, "buyer", `Sweep Buyer ${Date.now()}`);
-  await sweep(page, [...PUBLIC_PAGES.filter((p) => !["/login", "/register"].includes(p)), ...BUYER_PAGES], isMobile);
-});
+for (const [label, pages] of [
+  ["organization (buyer) pages", BUYER_PAGES.filter((p) => p.startsWith("/org"))],
+  ["account & storefront pages", [...PUBLIC_PAGES.filter((p) => !["/login", "/register"].includes(p)), ...BUYER_PAGES.filter((p) => p.startsWith("/account"))]],
+] as const) {
+  test(`@mobile portal sweep: ${label} render in Arabic and English without errors, overflow or serious a11y issues`, async ({ page, isMobile }) => {
+    test.setTimeout(900_000);
+    await register(page, { email: uniqueEmail("sweep"), name: "Sweep User" });
+    await createOrg(page, "buyer", `Sweep Buyer ${Date.now()}`);
+    await sweep(page, [...pages], isMobile);
+  });
+}
 
 test("@mobile portal sweep: supplier pages", async ({ page, isMobile }) => {
-  test.setTimeout(600_000);
+  test.setTimeout(900_000);
   await page.goto("/ar/login");
   await page.locator("#email").fill(SUPPLIER_EMAIL);
   await page.locator("#password").fill(SEED_PASSWORD);

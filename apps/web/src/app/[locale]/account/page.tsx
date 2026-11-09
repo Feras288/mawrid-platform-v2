@@ -31,10 +31,10 @@ export default async function AccountHome() {
             ) : (
               <ul className="divide-y divide-sand-100">
                 {orgs.map((o) => (
-                  <li key={o.orgId} className="flex items-center justify-between gap-3 py-2.5">
+                  <li key={o.orgId} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2.5">
                     <span className="flex min-w-0 items-center gap-2">
                       <Building2 className="size-4 text-ink-400" aria-hidden />
-                      <span className="truncate font-medium">{ctx.locale === "ar" ? o.nameAr : o.nameEn}</span>
+                      <span className="min-w-0 truncate font-medium">{ctx.locale === "ar" ? o.nameAr : o.nameEn}</span>
                       <Badge tone={o.type === "supplier" ? "accent" : "primary"}>{t(`account.orgType.${o.type as "buyer" | "supplier" | "platform"}`)}</Badge>
                     </span>
                     {o.orgId === ctx.orgId ? <Badge tone="success">{t("account.active")}</Badge> : null}

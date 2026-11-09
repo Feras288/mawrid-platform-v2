@@ -85,6 +85,13 @@
       "when": 1794189448348,
       "tag": "0011_store_search_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794192129304,
+      "tag": "0012_sku_lower",
+      "breakpoints": true
     }
   ]
 }

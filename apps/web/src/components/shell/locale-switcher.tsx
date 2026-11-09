@@ -23,7 +23,7 @@ function LocaleSwitcherInner() {
   return (
     <Link href={`${pathname}${qs ? `?${qs}` : ""}`} locale={other} lang={other} className="inline-flex items-center gap-1.5 rounded-lg px-2 py-2 text-sm text-ink-600 hover:bg-sand-100" aria-label={t("language")}>
       <Languages className="size-4" />
-      <span>{t("switchLanguage")}</span>
+      <span className="hidden sm:inline">{t("switchLanguage")}</span>
     </Link>
   );
 }

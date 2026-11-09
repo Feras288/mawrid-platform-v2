@@ -109,7 +109,12 @@ export async function searchProducts(ctx: Ctx, input: SearchInput) {
       // BitmapAnd); or the raw text matches a SKU (trigram index) or a brand exactly
       const words = q.split(/\s+/).filter(Boolean).slice(0, 8);
       const nameMatch = words.length ? sql.join(words.map((w) => sql`${V.normalizedName} ilike ${`%${likeEscape(w)}%`}`), sql` and `) : sql`false`;
-      conds.push(sql`((${nameMatch}) or ${V.sku} ilike ${`%${likeEscape(raw)}%`} or lower(coalesce(${V.brandName}, '')) = lower(${raw}))`);
+      // an exact SKU wins outright (customers paste SKUs from quotes and invoices)
+      const exactSku = /^\S{3,64}$/.test(raw)
+        ? await withSystem((sx) => sx.select({ id: V.id }).from(V).where(sql`lower(${V.sku}) = lower(${raw})`).limit(1))
+        : [];
+      if (exactSku.length) conds.push(sql`lower(${V.sku}) = lower(${raw})`);
+      else conds.push(sql`((${nameMatch}) or ${V.sku} ilike ${`%${likeEscape(raw)}%`} or lower(coalesce(${V.brandName}, '')) = lower(${raw}))`);
     }
     if (input.brand) conds.push(sql`lower(${V.brandName}) = lower(${input.brand})`);
     if (input.supplierOrgId) conds.push(eq(V.orgId, input.supplierOrgId));

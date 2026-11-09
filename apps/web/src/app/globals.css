@@ -11,8 +11,9 @@
   --color-primary-800: #0b463b;
   --color-primary-900: #07312a;
   --color-accent-100: #f6ecd9;
-  --color-accent-500: #b8893b;
-  --color-accent-700: #8a6424;
+  --color-accent-500: #93620f; /* white text 5.3:1 (AA) */
+  --color-accent-600: #7f560d;
+  --color-accent-700: #6f4a0b;
   --color-sand-50: #faf9f6;
   --color-sand-100: #f4f3ee;
   --color-sand-200: #e8e6de;
@@ -26,9 +27,9 @@
   --color-danger-600: #c0392b;
   --color-danger-700: #a12d22;
   --color-warning-50: #fff8e6;
-  --color-warning-600: #b7791f;
+  --color-warning-600: #8f5f0e; /* 5.2:1 on warning-50 */
   --color-success-50: #ecf8f1;
-  --color-success-600: #1e8449;
+  --color-success-600: #1a7a42; /* 4.9:1 on success-50 */
   --color-info-50: #eef4fb;
   --color-info-600: #2c6aa0;
   --font-sans: var(--font-arabic), var(--font-latin), ui-sans-serif, system-ui, sans-serif;

@@ -1,0 +1,1 @@
+CREATE INDEX "supplier_products_sku_lower_idx" ON "supplier_products" USING btree (lower("sku"));

@@ -59,12 +59,12 @@ export async function PortalShell({ ctx, portalLabel, nav, children }: { ctx: Ct
         </div>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-sand-200 bg-white/95 px-4 backdrop-blur">
+        <header className="sticky top-0 z-30 flex h-16 min-w-0 items-center gap-2 border-b border-sand-200 bg-white/95 px-3 backdrop-blur sm:gap-3 sm:px-4">
           <MobileNav title={portalLabel} items={items} />
           <div className="lg:hidden">
             <Brand />
           </div>
-          <div className="ms-auto flex items-center gap-2">
+          <div className="ms-auto flex min-w-0 items-center gap-1 sm:gap-2">
             <LocaleSwitcher />
             <Link href="/account/notifications" className="relative rounded-lg px-2 py-2 text-sm text-ink-600 hover:bg-sand-100" aria-label={`${t("nav.notifications")}${unread ? ` (${unread})` : ""}`}>
               <BellIcon />
