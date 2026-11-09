@@ -87,4 +87,5 @@ on every deploy. New schema changes: `pnpm db:generate --name <change>` and revi
 | Bundled `migrate` | Passed (idempotent on dev DB; re-applied RLS on a restored DB) |
 | Backup → restore drill | Passed |
 | Docker images | **Not verified locally**: three build attempts failed inside the Docker VM on npm registry download timeouts for large binaries (`next`, `@next/swc-linux-x64-gnu`, `@turbo/linux-64`) — network, not Dockerfile errors. Every step the images run (filtered install, `next build` standalone, worker bundle, hoisted `pnpm deploy`, bundled migrate) was verified natively. The CI `images` job builds both images. |
+| Docker step rehearsal (clean clones) | Passed: filtered frozen install, `next build` **without any env vars** (after the lazy-DB fix), worker bundle, hoisted deploy, bundled migrate, worker boot. Not reproducible on Windows: Chromium Linux packages |
 | Staging / production deploy | Not performed (requires owner approval and infrastructure) |

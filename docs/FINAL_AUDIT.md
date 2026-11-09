@@ -49,16 +49,13 @@ duplicate prevention, failure handling without data corruption).
 | Typecheck (6 packages) | `pnpm typecheck` | pass |
 | Lint | `pnpm lint` | 0 errors, 0 warnings |
 | Unit | `pnpm test` | 72 / 72 passed (10 files) |
-| Integration (real PostgreSQL, `app_user` + RLS) | `pnpm test:integration` | 56 / 56 passed (9 files) |
-| End-to-end (Playwright, desktop + mobile, axe) | `playwright test` | 23 / 23 passed on the final run* |
+| Integration (real PostgreSQL, `app_user` + RLS) | `pnpm test:integration` | 61 / 61 passed (10 files) |
+| End-to-end (Playwright, desktop + mobile, axe) | `playwright test` | 23 / 23 passed in one run (17 desktop + 6 mobile) |
 | Production build | `next build` + worker bundle | pass; standalone server and bundled worker smoke-tested |
 | Backup → restore drill | `infra/backup/*.sh` | pass |
 | Performance (100k products) | `scripts/perf/run.ts` | 5 / 5 targets met |
 
-\* The final full run had one failure (store SKU search returned token matches among 100k generated products);
-it was fixed (exact-SKU match wins) and the store spec, store integration tests and the full unit/integration
-suites were re-run and passed. The portal sweep covers 37 pages × Arabic/English on desktop (axe) and mobile
-(no horizontal overflow).
+The portal sweep covers 37 pages × Arabic/English on desktop (axe) and mobile (no horizontal overflow). Counts above are from the release-verification run (TEST_REPORT); see RELEASE_READINESS.md.
 
 Performance (production build, 100,000 supplier products): store search p95 251 ms (service) / 328 ms
 (HTTP) vs < 400 ms; BOQ 2,000 lines 23.3 s vs < 60 s; comparison 500 × 8 in 304 ms vs < 2 s; bilingual PO PDF
@@ -90,7 +87,9 @@ axe, and the store-search performance issues.
 
 ## 6. Known limitations
 - Docker images were not built locally: the Docker VM repeatedly timed out downloading large npm tarballs.
-  Every step the images perform was verified natively, and the CI `images` job builds both images.
+  Every Dockerfile step was rehearsed in clean git clones (filtered frozen install, `next build` without env vars,
+  worker bundle, hoisted deploy, bundled migrate, worker boot); only Chromium's Linux packages could not be
+  reproduced on Windows. The CI `images` job builds both images.
 - CI workflow is written but has not run on GitHub (no remote push without approval).
 - CSP allows `'unsafe-inline'` (Next.js bootstrap without nonces). Two moderate `pnpm audit` advisories in
   tooling/transitive paths not reachable at runtime (see SECURITY.md).

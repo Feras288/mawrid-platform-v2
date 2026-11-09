@@ -69,3 +69,19 @@ Known limitations:
   `drizzle-kit` tooling, not at runtime) and `uuid < 11.1.1` inside `exceljs` (bounds check in v3/v5/v6 with
   a caller buffer; exceljs does not use that path). Tracked for upgrade when upstream releases allow.
 - Antivirus scanning of uploads is a disabled hook (Integration Pending: ClamAV service).
+
+## Store catalog view review (release verification, 2026-11-09)
+`store_catalog` (owner-privileged view used only for storefront search ids/counts, ADR-024):
+- Exposes only published, active products with a current retail price whose supplier profile is approved **and**
+  whose organization is active (`app_approved_supplier_ids()`), the same rule as the public RLS policy.
+- Columns: id, org_id, sku, category_id, brand_name, name_ar, name_en, normalized_name, store_price, created_at —
+  no stock, cost, attributes, enterprise / contract / regional prices or buyer data. `store_price` is the lowest
+  current **retail** tier only and is written exclusively by owner-privileged triggers.
+- `app_user` has SELECT only (UPDATE/DELETE through the view are denied); the selected rows are re-read under the
+  viewer's RLS context before anything is returned.
+- Covered by `catalog-security.int` (5 tests) incl. admin suspension of an organization and RFQ eligibility.
+- Accepted risk: the view is not `security_barrier` (that would disable index use for ILIKE). A database session
+  able to run arbitrary SQL with leaky functions could infer filtered-out rows; the runtime role is only used by
+  server code with parameterized queries, so no user can issue such SQL.
+- Defect fixed during this review: approval checks ignored `organizations.status`, so an admin-suspended supplier
+  stayed visible in the store, cart, RFQ directory and could still receive RFQs.

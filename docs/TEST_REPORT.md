@@ -35,7 +35,15 @@ Results are recorded from actual runs only (date, command, outcome). No result i
 
 | 2026-11-09 | Unit (final) | `pnpm test` | 72/72 passed | + brand decoupling, price-index stats, payments contract |
 | 2026-11-09 | Integration (final) | `pnpm test:integration` | 56/56 passed | + BOQ concurrent processing, unapproved suppliers hidden from search |
-| 2026-11-09 | E2E (final) | `playwright test` | 22/23 then fixed → store spec 3/3 re-run passed | + portal sweep: 37 pages × ar/en, axe on desktop, overflow on mobile |
+| 2026-11-09 | E2E (pre-release) | `playwright test` | 22/23, store spec fixed and re-run 3/3 (superseded by the release-verification run below) | + portal sweep: 37 pages × ar/en, axe on desktop, overflow on mobile |
+
+| 2026-11-09 | **Release verification** — Lint | `pnpm lint` | 0 errors, 0 warnings | after all fixes |
+| 2026-11-09 | **Release verification** — Typecheck | `pnpm typecheck` | 6/6 packages | |
+| 2026-11-09 | **Release verification** — Unit | `pnpm test` | 72/72 passed (10 files) | |
+| 2026-11-09 | **Release verification** — Integration | `pnpm test:integration` | 61/61 passed (10 files) | + catalog-security.int (5): unpublished/inactive/unpriced hidden, no non-retail price leak, suspended profile/organization hidden (catalog, cart, RLS, RFQ directory, recipients, delivery), view read-only, no private columns |
+| 2026-11-09 | **Release verification** — E2E | `playwright test` | 23/23 passed in one run (17 desktop + 6 mobile, 8.4 min) | all critical paths 1–13, portal sweep 37 pages × ar/en, axe, mobile overflow |
+| 2026-11-09 | Release verification — auth re-check after `auth.ts` change | `playwright test foundation admin` | 7/7 passed | lazy DB handle for Better Auth |
+| 2026-11-09 | Docker step rehearsal (clean git clones) | filtered `pnpm install --frozen-lockfile`, `next build` with **no env vars**, worker bundle, hoisted `pnpm deploy`, bundled migrate, worker boot | pass | Chromium Linux packages not reproducible on Windows |
 
 ## Performance (Phase 9, 2026-11-09)
 Machine: developer laptop (12 CPU, ~8 GB RAM shared with Docker and other projects), PostgreSQL 17 in Docker,
@@ -60,6 +68,9 @@ id/count (Postgres cannot push non-leakproof `ILIKE` below RLS quals) with rows 
 RLS; brand facet cached 5 min; batched stock lookups. Not measured: 20k-line BOQ listing (paginated at 100).
 
 ## Defects found by tests and fixed
+- (release verification) Products, prices and RFQ directory entries of an organization suspended by a platform admin stayed visible because approval checks only read `supplier_profiles.status` → helpers, view and RFQ paths now also require `organizations.status = 'active'`; delivery re-checks eligibility.
+- (release verification) `next build` required `DATABASE_URL` (Better Auth adapter resolved the DB at import) → Docker web builds could not succeed → lazy DB handle.
+- (release verification) Web image install (`--filter @platform/web...`) lacked TypeScript (root-only devDependency) → declared in `apps/web`.
 - Portal sweep (axe): white text on the accent button 3.1:1, warning/success badges below 4.5:1, undefined `accent-600` token → tokens corrected.
 - Portal sweep (mobile): portal header wider than 375 px in RTL, account organization rows not wrapping, grid items expanding to content width → compact header, wrapping rows, `min-w-0` on cards.
 - Exact SKU searches drowned in token matches at 100k products → exact SKU match wins.
