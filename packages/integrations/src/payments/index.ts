@@ -51,6 +51,17 @@ export interface RefundResult {
   failureReason?: string | null;
 }
 
+export interface RefundLookup {
+  /** the captured payment the refund was made against */
+  paymentId: string;
+  /** reference returned when the provider accepted the refund (may identify the payment itself) */
+  providerRef: string | null;
+  amountMinor: number;
+  /** minor units of this payment already refunded and confirmed on our side, excluding this refund */
+  refundedBeforeMinor: number;
+  idempotencyKey: string;
+}
+
 export interface PaymentProvider {
   readonly name: "test" | "moyasar" | "bank_transfer";
   /** true when the provider sends the customer to a hosted page */
@@ -64,6 +75,12 @@ export interface PaymentProvider {
    * `idempotencyKey`, which the provider must honour by replaying the original result.
    */
   refund(paymentId: string, amountMinor: number, idempotencyKey: string): Promise<RefundResult>;
+  /**
+   * Optional. Read-only status of a refund the provider ACCEPTED as pending (never re-sends it): `succeeded` once the
+   * money is returned, `failed` only when the provider reports a rejection, otherwise `pending`. Throws when the lookup
+   * itself fails. Providers without it are escalated to manual follow-up when the confirmation window passes.
+   */
+  fetchRefund?(input: RefundLookup): Promise<RefundResult>;
   /** Verify authenticity and parse; returns null when the signature/secret is invalid. */
   parseWebhook(rawBody: string, headers: Headers): WebhookEvent | null;
 }
@@ -128,6 +145,9 @@ export class TestPaymentProvider implements PaymentProvider {
     }
     if (idempotencyKey) TestPaymentProvider.refundsByKey.set(idempotencyKey, result);
     return result;
+  }
+  async fetchRefund(i: RefundLookup): Promise<RefundResult> {
+    return TestPaymentProvider.refundsByKey.get(i.idempotencyKey) ?? { status: "pending", providerRef: i.providerRef };
   }
   sign(body: string) {
     return hmacSha256(this.secret, body);
@@ -247,6 +267,16 @@ export class MoyasarProvider implements PaymentProvider {
       }
       throw e;
     }
+  }
+  /**
+   * Moyasar refunds are applied to the payment, whose `refunded` field is the cumulative amount returned. The refund is
+   * confirmed once that total covers what we had already confirmed plus this refund. The lookup is a GET: nothing is re-sent.
+   */
+  async fetchRefund(i: RefundLookup): Promise<RefundResult> {
+    const p = await this.call<{ id: string; status: string; refunded?: number | string | null }>("GET", `/payments/${encodeURIComponent(i.paymentId)}`);
+    const refunded = Number(p.refunded ?? 0);
+    const done = p.status === "refunded" || (Number.isFinite(refunded) && refunded >= i.refundedBeforeMinor + i.amountMinor);
+    return { status: done ? "succeeded" : "pending", providerRef: p.id };
   }
   parseWebhook(rawBody: string): WebhookEvent | null {
     let p: { id?: string; type?: string; secret_token?: string; data?: { id?: string; invoice_id?: string | null } };

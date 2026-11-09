@@ -98,3 +98,4 @@ RLS; brand facet cached 5 min; batched stock lookups. Not measured: 20k-line BOQ
 - E2E located POs by number; numbers are per buyer org so a supplier sees duplicates from different buyers → navigate by id (list shows buyer name).
 
 | 2026-11-09 | Hardening P0 (unit/integration/E2E) | `pnpm test` / `test:integration` / `test:e2e` | 75/75 · 90/90 · 23/23 passed | + AUD-001/004/005/006/007 reproduction & regression tests (webhook redelivery, duplicate captures, refund recovery, duplicate PO lines, cancel-vs-ship races); see HARDENING_REPORT.md |
+| 2026-11-09 | Hardening P0 round 2 (unit/integration/E2E) | `pnpm test` / `test:integration` / `test:e2e` | 76/76 · 108/108 · 23/23 passed | + provider-accepted refund reconciliation, OBS-1 ledger fix with per-account assertions, historical duplicate-capture settlement; migration 0014 |

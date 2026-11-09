@@ -171,6 +171,7 @@ PO cancelled; ship → cannot cancel → receive → complete regression.
   stays reserved, and it appears in the admin "refunds needing action" list.
 - The provider is always called with the refund's idempotency key, so retrying an executed-but-unanswered
   refund returns the original result instead of refunding twice.
+- Refunds the provider **accepted as pending** (`provider_ref` set) are not re-sent but reconciled — see Review round 2, R2-1.
 - `MoyasarProvider.refund`: 4xx (except 408/429) → terminal `failed`; everything else is thrown (unknown).
 - New job `store.recover_refunds` (worker, every 5 min) → `recoverPendingRefunds()`.
 - `completeRefund` locks order → intent → refund, and closes the return request (`return:<id>` key).
@@ -205,14 +206,102 @@ optional `intentId`; `RefundInput.reason` and webhook/refund status vocabularies
 no new features.
 
 ## Observations outside this scope (not changed)
-- **OBS-1 — late payment after expiry leaves a negative supplier balance (verified, pre-existing).** An order
-  that expires unpaid and is then paid is refunded automatically (correct), but `markOrderPaid` is skipped so the
-  payment journal is never posted while `completeRefund` posts the reversal. Verified with a scratch test:
-  `supplierBalance` = **-23.00** for a 23.00 order (trial balance stays balanced because each journal is
-  balanced). Not one of the five findings and it touches ledger semantics, so it is left for a decision; the fix
-  is small (skip the reversal when no payment journal exists for the group, or post both legs).
+- **OBS-1 — resolved in review round 2 (R2-2).**
 - **OBS-2 — no provider-side cancel for superseded intents** (limitation under AUD-004).
 - **OBS-3 — `unknown_reference` webhooks are `ignored` and not re-claimable** (residual under AUD-001).
+
+## Review round 2 (PR #1 independent review)
+
+Three financial points were raised on the same branch. As before, reproduction tests were written first and run
+against the round-1 code (`480e22e`): 16 of 18 new tests failed for the reasons below (the other two are
+regression guards for booked payments and supplier cancellation, which already behaved correctly).
+
+### R2-1 — refunds the provider accepted as `pending` were never followed up
+
+**Cause.** `recoverPendingRefunds` selected only `provider_ref IS NULL` (so it would not re-send an accepted
+refund — correct) but nothing else ever looked at refunds that *had* a `provider_ref`. They stayed `pending`
+forever, holding their amount in the refundable capacity and never reaching the ledger / credit note.
+**Evidence (round-1 code).** pending+ref refunds were never examined (`completed` = 0, lookup never called).
+
+**Fix.**
+- Optional provider capability `PaymentProvider.fetchRefund(...)`: a read-only status lookup (never a second
+  refund call). Moyasar: `GET /payments/{id}`; refunds apply to the payment, so the refund is confirmed when the
+  payment's cumulative `refunded` total (or status `refunded`) covers *confirmed-so-far + this refund*. Test
+  provider: replays the recorded result for the refund's idempotency key.
+- `reconcileAcknowledgedRefund`, run by the same job (`recoverPendingRefunds`, every 5 min):
+  - claimed with the lease (`last_attempt_at`), so concurrent sweeps and workers do not double-process;
+  - **oldest first and only when no older refund of the same payment is `pending`/`manual_required`**, so a
+    cumulative provider total can never be credited to the wrong refund;
+  - `succeeded` → `completeRefund` (idempotent; order → intent → refund locks; ledger, credit note, return closed);
+  - `failed` → only when the provider *reports* a rejection: status `failed`, reserved amount released,
+    attempt recorded; no ledger effect;
+  - lookup error or `pending` → unchanged, retried next sweep;
+  - still unconfirmed after `REFUND_CONFIRM_MAX_AGE_MS` (48 h) → `manual_required`
+    (`provider_unconfirmed`, audit `refund.escalated`); providers without `fetchRefund` take the same path.
+- Idempotency guarantees: the reconcile path performs no provider write at all; the resend path (no `provider_ref`)
+  still uses the claimed attempt and the refund's idempotency key.
+
+**Tests.** confirm → completed once, refund call count stays 1, credit note once, repeated sweep no-op; pending →
+stays pending and the lease prevents re-polling; provider failure → `failed`, amount released, order still `paid`,
+new refund possible; lookup error → retried; 48 h → `manual_required` + audit; two refunds of one payment are
+examined in order with the correct `refundedBeforeMinor`; 5 concurrent sweeps → one completion. Unit: Moyasar
+`fetchRefund` is a GET and applies the cumulative rule (incl. 503 → thrown, not a verdict).
+
+**Limitations.** (a) A refund made *outside* the platform on the same payment (e.g. in the provider dashboard)
+counts toward Moyasar's cumulative total and could confirm one of ours early; finance should refund through the
+platform. (b) `manual_required` older refunds block reconciliation of newer ones of the same payment until
+finance resolves them (deliberate: wrong money attribution is worse than a delay; the newer one escalates after 48 h).
+(c) Moyasar exposes no explicit refund-failure state, so Moyasar refunds end as confirmed or escalated, never auto-`failed`.
+
+### R2-2 — OBS-1: late payment then refund drove supplier_payable negative
+
+**Accounting decision.** A payment that arrives after the order expired is never *recognised*: the order is
+cancelled, `markOrderPaid` is skipped, no supplier payable / commission / VAT is booked, and the money goes
+straight back. The correct entry is therefore **none** — not a reversal of legs that were never posted. The
+platform ledger only models recognised, supplier-attributable amounts; the cash in/out of a refunded late payment
+is tracked by `payment_intents` / `refunds`, not by `ledger_entries` (the four-account chart has no suspense
+account and adding one would change the model). `completeRefund` now reverses a group's legs **only if that group
+has a `payment` journal**; customer-facing state (order `refunded`, refunded totals, event, notification) is unchanged.
+**Evidence (round-1 code).** after a late payment + refund: platform_clearing −23.00, supplier_payable +23.00 debit
+(supplier balance −23.00), i.e. the books showed a refund of money that was never booked.
+
+**Tests.** late payment + refund (webhook): zero ledger rows for the order, per-account net all `0.00`, supplier
+balance and *every platform account's debit and credit totals* identical to before (not merely balanced);
+same with a provider outage + recovery; booked payments unchanged with exact per-account figures after payment
+(clearing 23.00 / payable −23.00 / commission 0 / VAT 0), partial refund 5.00 (18.00 / −18.00), full refund
+(all 0.00) and supplier balance deltas; supplier cancellation still reverses exactly what was booked.
+
+**Historical data — migration 0014 (data only).** Refund journals on groups that have no payment journal get an
+idempotent compensating journal (debit/credit swapped, memo `correction:unposted_payment`, deterministic ids). The
+ledger stays append-only. Verified in a rolled-back transaction: net −23.00/+23.00 → 0.00/0.00, second run adds
+nothing, a booked group is untouched, all journals balanced.
+
+### R2-3 — historical duplicates flagged `duplicate_of` by migration 0013
+
+0013 only classifies; it never refunds. Live-flow duplicates get their refund request in the same transaction
+as the classification and are executed automatically (that is the intended behaviour for new payments).
+**Historical** duplicates have no refund request, are not touched by the sweeper or by webhooks, and now have an
+explicit reconciliation path (service layer; no UI added):
+- migration 0014 writes one audit row per flagged intent (`payment.duplicate_capture_legacy`, state
+  `needs_review`);
+- `listDuplicateCaptures(ctx)` (`admin.finance`): every flagged capture with its primary, amount and state
+  `needs_review | refund_in_progress | refunded | dismissed`;
+- `settleDuplicateCapture(ctx, intentId, { action, note })` (`admin.finance`, note ≥ 3 chars):
+  - `refund`: **re-reads the payment from the provider** and refuses (`duplicate_not_verified`) unless it is still
+    captured for exactly the intent's amount and currency (bank transfers cannot be re-read — the note is the
+    evidence and the refund ends in the existing manual-confirmation flow); then requests the refund through the
+    normal idempotent, recoverable pipeline (`dup:<intent>`, `requestedBy` = the admin), audited
+    (`payment.duplicate_capture_settled`). Books, ledger, credit notes and order refunded totals are not touched;
+  - `dismiss`: for captures already handled outside the system; audited, recorded as an order event;
+  - repeating the same action is idempotent (4 concurrent calls → one refund); the two actions exclude each other
+    (`duplicate_already_settled`); non-duplicates are refused (`not_a_duplicate`).
+
+**Tests.** no automatic refund by sweeper or webhook; finance permission and note enforced; provider verification
+(wrong amount / not captured → nothing refunded); verified refund once under concurrency with audit, unchanged
+platform totals and no credit note; dismiss/refund exclusivity; outage during a settled refund recovers via the job.
+
+**Not done (needs a decision).** Wiring these two functions into the admin finance screen. It was left out
+because the request excluded UI changes; the service API is complete and tested.
 
 ## Results (actual runs, 2026-11-09, sequential, local Postgres/Valkey/SeaweedFS)
 
@@ -220,24 +309,28 @@ no new features.
 |---|---|---|
 | Lint | `pnpm lint` | 0 errors / 0 warnings |
 | Typecheck | `pnpm typecheck` | 6/6 packages |
-| Unit | `pnpm test` | **75/75** (72 + 3 new adapter tests) |
-| Integration | `pnpm test:integration` | **90/90** (61 + 29 new: 19 finance, 10 procurement) |
-| E2E | `pnpm test:e2e` | **23/23** (dev DB migrated with 0013 first) |
-| Migration: schema drift | `drizzle-kit generate` | "No schema changes" |
-| Migration: fresh apply | integration global setup (drop schema → all migrations + RLS) | applied |
-| Migration: upgrade of dev DB | `pnpm db:migrate` | applied, columns present |
-| Migration: legacy data | rolled-back transaction: 3 captures for one order → repair → unique index | 1 primary, 2 duplicates pointing at it, index created |
+| Unit | `pnpm test` | **76/76** (72 baseline + 4 new adapter tests) |
+| Integration | `pnpm test:integration` | **108/108** (61 baseline + 47 new: 19 + 10 round 1, 18 round 2) |
+| E2E | `pnpm test:e2e` | **23/23** |
+| Migration: schema drift | `drizzle-kit check` + `generate` | "Everything's fine" / "No schema changes" |
+| Migration: fresh apply | integration global setup (drop schema → 0000–0014 + RLS) | applied |
+| Migration: upgrade of dev DB | `pnpm db:migrate` | applied |
+| Migration 0013 legacy data | rolled-back transaction: 3 captures for one order → repair → unique index | 1 primary, 2 duplicates pointing at it, index created |
+| Migration 0014 legacy data | rolled-back transaction, run twice | ledger corrected once, idempotent, booked group untouched, journals balanced, 1 audit row per duplicate |
+| CI | GitHub Actions on the PR branch | see PR #1 |
 
-Reproduction run on the unmodified baseline: 6 of 10 procurement tests and 14 of 17 finance tests failed for
-the reasons stated above; after the fixes all pass.
+Round-1 reproduction on the unmodified baseline `88b6b37`: 6 of 10 procurement tests and 14 of 17 finance tests failed;
+round-2 reproduction on `480e22e`: 16 of 18 failed. All pass after the fixes.
 
 Test-isolation note: the hardening suites share one supplier/buyer per file. Approved suppliers are global
 state that `suggestSuppliers` (top-20) ranks against, and creating ~40 of them made the existing procurement
 cycle test fail when it ran afterwards. That test was not modified.
 
 ## Files
-`packages/modules/src/payments/index.ts`, `packages/modules/src/purchase-orders/index.ts`,
+Round 1: `packages/modules/src/payments/index.ts`, `packages/modules/src/purchase-orders/index.ts`,
 `packages/integrations/src/payments/index.ts`, `packages/db/src/schema/commerce.ts`,
-`packages/db/migrations/0013_hardening_p0.sql` (+ meta), `packages/modules/src/wiring/index.ts`,
-`apps/worker/src/schedules.ts`; tests `packages/modules/test/hardening-{finance,procurement}.int.test.ts`,
+`packages/db/migrations/0013_hardening_p0.sql`, `packages/modules/src/wiring/index.ts`, `apps/worker/src/schedules.ts`.
+Round 2: `packages/modules/src/payments/index.ts`, `packages/integrations/src/payments/index.ts`,
+`packages/db/migrations/0014_hardening_p0_legacy_review.sql`.
+Tests: `packages/modules/test/hardening-{finance,finance2,procurement}.int.test.ts`, `hardening-helpers.ts`,
 `payments.unit.test.ts`.

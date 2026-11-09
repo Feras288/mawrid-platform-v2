@@ -9,44 +9,13 @@ import { randomToken } from "@platform/core";
 import { withSystem } from "@platform/db";
 import { paymentIntents, paymentWebhookEvents, refunds } from "@platform/db/schema";
 import { TestPaymentProvider } from "@platform/integrations/payments";
-import { addToCart, advanceGroup, cancelBySupplier, checkout, decideReturn, getMyOrder, requestReturn } from "../src/commerce";
+import { advanceGroup, cancelBySupplier, decideReturn, getMyOrder, requestReturn } from "../src/commerce";
 import { ledgerSummary, processWebhook, providerFor, recoverPendingRefunds, refundPayment, retryPayment } from "../src/payments";
-import { adminCtx, approvedSupplier } from "./helpers";
-import { customer, intentOf, product, webhook, zone } from "./store-helpers";
+import { adminCtx } from "./helpers";
+import { count, creditNotes, journals, paidEvents, paidOrder, placeCardOrder } from "./hardening-helpers";
+import { webhook } from "./store-helpers";
 
 afterEach(() => vi.restoreAllMocks());
-
-let shop: Promise<{ sup: Awaited<ReturnType<typeof approvedSupplier>>; productId: string }> | undefined;
-/** One supplier and product for the whole file: approved suppliers are global state other suites rank against. */
-const sharedShop = () =>
-  (shop ??= (async () => {
-    const sup = await approvedSupplier();
-    const p = await product(sup, { sku: `H-${randomToken(4)}`, retail: "10.00", stock: "5000" });
-    await zone(sup, "0.00");
-    return { sup, productId: p.id };
-  })());
-
-async function placeCardOrder() {
-  const { sup, productId } = await sharedShop();
-  const c = await customer();
-  await addToCart(c.ctx, productId, "2");
-  const r = await checkout(c.ctx, { addressId: c.addr.id, shipping: { [sup.org.id]: "standard" }, paymentMethod: "card", acceptTerms: true }, `k-${randomToken(10)}`);
-  const intent = await intentOf(r.orderId);
-  const order = await getMyOrder(c.ctx, r.orderId);
-  return { sup, c, orderId: r.orderId, intent, groupId: order.groups[0]!.id };
-}
-
-async function paidOrder() {
-  const o = await placeCardOrder();
-  TestPaymentProvider.settle(o.intent.providerRef!, "succeeded");
-  expect((await webhook(o.intent.providerRef!)).result).toBe("succeeded");
-  return o;
-}
-
-const count = async (q: ReturnType<typeof sql>) => Number(((await withSystem((tx) => tx.execute(q))).rows[0] as { n: string }).n);
-const paidEvents = (orderId: string) => count(sql`select count(*) n from order_events where order_id = ${orderId} and kind = 'paid'`);
-const journals = (orderId: string) => count(sql`select count(distinct journal_id) n from ledger_entries where order_id = ${orderId}`);
-const creditNotes = (orderId: string) => count(sql`select count(*) n from invoices where order_id = ${orderId} and kind = 'credit_note'`);
 
 describe("AUD-001: a webhook whose processing failed must be re-processable on provider redelivery", () => {
   it("reprocesses the same event id after a transient failure (was: answered 'duplicate' forever)", async () => {

@@ -88,6 +88,25 @@ describe("Moyasar adapter (contract, mocked HTTP)", () => {
     expect(calls.map((c) => (c.init.headers as Record<string, string>)["idempotency-key"])).toEqual(["rf-key", "rf-key"]);
   });
 
+  it("fetchRefund is a read-only GET and confirms only when the cumulative refunded total covers the confirmed amount plus this refund", async () => {
+    const lookup = { paymentId: "pay_1", providerRef: "pay_1", amountMinor: 700, refundedBeforeMinor: 500, idempotencyKey: "rf-2" };
+    const ask = async (body: unknown) => {
+      const { f, calls } = mockFetch([{ status: 200, body }]);
+      const r = await new MoyasarProvider({ secretKey: "sk", webhookSecret: "w", fetchImpl: f }).fetchRefund(lookup);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.init.method).toBe("GET");
+      expect(calls[0]!.url).toContain("/payments/pay_1");
+      return r.status;
+    };
+    expect(await ask({ id: "pay_1", status: "paid", refunded: 500 })).toBe("pending"); // only the earlier refund is there
+    expect(await ask({ id: "pay_1", status: "paid", refunded: 1199 })).toBe("pending");
+    expect(await ask({ id: "pay_1", status: "paid", refunded: 1200 })).toBe("succeeded");
+    expect(await ask({ id: "pay_1", status: "refunded", refunded: 2300 })).toBe("succeeded");
+    expect(await ask({ id: "pay_1", status: "paid" })).toBe("pending");
+    const { f } = mockFetch([{ status: 503, body: {} }]);
+    await expect(new MoyasarProvider({ secretKey: "sk", webhookSecret: "w", fetchImpl: f }).fetchRefund(lookup)).rejects.toBeDefined(); // lookup failure is not a verdict
+  });
+
   it("is not configured without keys", async () => {
     const p = new MoyasarProvider({});
     expect(p.isConfigured()).toBe(false);

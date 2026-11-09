@@ -1,10 +1,10 @@
-import { and, desc, eq, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { allocate, AppError, conflict, dec, invalidState, money, notFound, sha256, toDb, uuidv7 } from "@platform/core";
 import { env } from "@platform/core/env";
 import { logger } from "@platform/core/logger";
 import { nextDocNumber, withContext, withSystem, type Tx } from "@platform/db";
 import { authUsers, invoices, ledgerEntries, memberships, membershipRoles, orderEvents, orderGroups, orderLines, orders, organizations, paymentAttempts, paymentIntents, paymentWebhookEvents, refunds, returnRequests, roles } from "@platform/db/schema";
-import { BankTransferProvider, fromMinor, getPaymentProvider, MoyasarProvider, setPaymentProvider, TestPaymentProvider, toMinor, type FetchedPayment, type PaymentProvider } from "@platform/integrations/payments";
+import { BankTransferProvider, fromMinor, getPaymentProvider, MoyasarProvider, setPaymentProvider, TestPaymentProvider, toMinor, type FetchedPayment, type PaymentProvider, type RefundResult } from "@platform/integrations/payments";
 import { isSaudiVatNumber, zatcaQrTlv } from "@platform/integrations/zatca";
 import { audit } from "../audit";
 import { authorize, authorizeAdmin, requireOrg, requireUser } from "../authz";
@@ -423,6 +423,8 @@ export interface RefundInput {
 /** Minimum time between provider attempts for one refund, and attempts before finance takes over. */
 export const REFUND_RETRY_AFTER_MS = 60_000;
 export const REFUND_MAX_ATTEMPTS = 6;
+/** A refund the provider accepted but never confirmed within this window is handed to finance (manual_required). */
+export const REFUND_CONFIRM_MAX_AGE_MS = 48 * 3_600_000;
 
 /**
  * Record a refund request (idempotent per key). Bounded by what was captured and not yet refunded, per
@@ -497,7 +499,7 @@ async function executeRefund(refundId: string, opts: { leaseMs?: number; maxAtte
   }
   const [intent] = await withSystem((tx) => tx.select().from(paymentIntents).where(eq(paymentIntents.id, claimed.intentId!)).limit(1));
   if (!intent) throw notFound("Payment");
-  let res: Awaited<ReturnType<PaymentProvider["refund"]>>;
+  let res: RefundResult;
   try {
     const provider = await providerFor(intent.provider);
     res = await provider.refund(intent.providerPaymentId ?? intent.providerRef ?? "", toMinor(claimed.amount), claimed.idempotencyKey);
@@ -527,26 +529,99 @@ async function executeRefund(refundId: string, opts: { leaseMs?: number; maxAtte
 }
 
 /**
- * Job: retry refunds whose outcome is unknown (the provider call failed or the process died before it
- * returned): pending, not acknowledged by the provider, last attempt older than `olderThanMs`.
+ * Reconcile one refund the provider ACCEPTED as pending (provider_ref set) by reading its status from the provider.
+ * Read-only towards the provider: the refund is never sent again. Safeguards:
+ * - the check is claimed with the same lease as other attempts (concurrent sweeps do not double-process);
+ * - refunds of one payment are reconciled oldest first, and only when no older refund of that payment is still
+ *   pending or manual_required — otherwise a cumulative provider total could be credited to the wrong refund;
+ * - `succeeded` goes through `completeRefund` (idempotent, order → intent → refund locks); `failed` is applied only
+ *   when the provider reports a rejection; anything else stays pending until the confirmation window passes.
  */
-export async function recoverPendingRefunds(opts: { olderThanMs?: number; maxAttempts?: number; limit?: number } = {}): Promise<{ examined: number; completed: number; stillPending: number; escalated: number }> {
+async function reconcileAcknowledgedRefund(refundId: string, opts: { leaseMs: number; maxAgeMs: number }): Promise<"succeeded" | "failed" | "pending" | "manual_required" | "skipped"> {
+  const claimed = await withSystem(async (tx) => {
+    const rows = await tx
+      .update(refunds)
+      .set({ lastAttemptAt: sql`now()` })
+      .where(
+        and(
+          eq(refunds.id, refundId),
+          eq(refunds.status, "pending"),
+          isNotNull(refunds.providerRef),
+          sql`(${refunds.lastAttemptAt} is null or ${refunds.lastAttemptAt} <= now() - (${opts.leaseMs}::double precision * interval '1 millisecond'))`,
+          sql`not exists (select 1 from refunds o where o.intent_id = ${refunds.intentId} and o.status in ('pending','manual_required') and (o.created_at, o.id) < (${refunds.createdAt}, ${refunds.id}))`,
+        ),
+      )
+      .returning();
+    return rows[0] ?? null;
+  });
+  if (!claimed) return "skipped";
+  const [intent] = await withSystem((tx) => tx.select().from(paymentIntents).where(eq(paymentIntents.id, claimed.intentId!)).limit(1));
+  if (!intent) throw notFound("Payment");
+  const provider = await providerFor(intent.provider);
+  let res: RefundResult | null = null;
+  if (provider.fetchRefund) {
+    try {
+      res = await provider.fetchRefund({
+        paymentId: intent.providerPaymentId ?? intent.providerRef ?? "",
+        providerRef: claimed.providerRef,
+        amountMinor: toMinor(claimed.amount),
+        refundedBeforeMinor: toMinor(intent.refundedAmount),
+        idempotencyKey: claimed.idempotencyKey,
+      });
+    } catch (e) {
+      await withSystem((tx) => tx.insert(paymentAttempts).values({ intentId: intent.id, kind: "refund_lookup", status: "error", detail: { refundId: claimed.id, error: e instanceof Error ? e.message.slice(0, 300) : String(e) } }));
+    }
+  }
+  if (res?.status === "succeeded") {
+    await completeRefund(claimed.id, res.providerRef ?? claimed.providerRef);
+    return "succeeded";
+  }
+  if (res?.status === "failed") {
+    const failure = res.failureReason ?? "rejected_by_provider";
+    await withSystem(async (tx) => {
+      await tx.update(refunds).set({ status: "failed", failureReason: failure, processedAt: new Date() }).where(and(eq(refunds.id, claimed.id), eq(refunds.status, "pending")));
+      await tx.insert(paymentAttempts).values({ intentId: intent.id, kind: "refund_lookup", status: "failed", detail: { refundId: claimed.id, reason: failure } });
+    });
+    return "failed";
+  }
+  if (Date.now() - claimed.createdAt.getTime() >= opts.maxAgeMs) {
+    await withSystem(async (tx) => {
+      await tx.update(refunds).set({ status: "manual_required", failureReason: "provider_unconfirmed" }).where(and(eq(refunds.id, claimed.id), eq(refunds.status, "pending")));
+      await audit(SYS_CTX, { action: "refund.escalated", entityType: "refund", entityId: claimed.id, orgId: claimed.orgId, data: { reason: "provider_unconfirmed", providerRef: claimed.providerRef } }, tx);
+    });
+    return "manual_required";
+  }
+  return "pending";
+}
+
+/**
+ * Job, two kinds of unfinished refunds:
+ * 1. outcome unknown (no provider_ref: the call failed or the process died) → retried with the same idempotency key;
+ * 2. accepted by the provider as pending (provider_ref set) → reconciled by reading the provider, never re-sent.
+ * Both honour the lease `olderThanMs` and escalate to manual_required (attempt budget / confirmation window).
+ */
+export async function recoverPendingRefunds(opts: { olderThanMs?: number; maxAttempts?: number; confirmMaxAgeMs?: number; limit?: number } = {}): Promise<{ examined: number; completed: number; failed: number; stillPending: number; escalated: number }> {
   const olderThanMs = opts.olderThanMs ?? REFUND_RETRY_AFTER_MS * 2;
+  const idle = sql`coalesce(${refunds.lastAttemptAt}, ${refunds.createdAt}) <= now() - (${olderThanMs}::double precision * interval '1 millisecond')`;
   const due = await withSystem((tx) =>
     tx
-      .select({ id: refunds.id })
+      .select({ id: refunds.id, acknowledged: sql<boolean>`${refunds.providerRef} is not null` })
       .from(refunds)
-      .where(and(eq(refunds.status, "pending"), isNull(refunds.providerRef), sql`coalesce(${refunds.lastAttemptAt}, ${refunds.createdAt}) <= now() - (${olderThanMs}::double precision * interval '1 millisecond')`))
-      .orderBy(refunds.createdAt)
+      .where(and(eq(refunds.status, "pending"), idle))
+      .orderBy(refunds.createdAt, refunds.id)
       .limit(opts.limit ?? 100),
   );
-  const out = { examined: due.length, completed: 0, stillPending: 0, escalated: 0 };
-  for (const { id } of due) {
+  const out = { examined: due.length, completed: 0, failed: 0, stillPending: 0, escalated: 0 };
+  const tally = (status: string) => {
+    if (status === "succeeded") out.completed++;
+    else if (status === "failed") out.failed++;
+    else if (status === "manual_required") out.escalated++;
+    else out.stillPending++;
+  };
+  for (const { id, acknowledged } of due) {
     try {
-      const r = await executeRefund(id, { leaseMs: olderThanMs, maxAttempts: opts.maxAttempts });
-      if (r.status === "succeeded") out.completed++;
-      else if (r.status === "manual_required") out.escalated++;
-      else out.stillPending++;
+      const status = acknowledged ? await reconcileAcknowledgedRefund(id, { leaseMs: olderThanMs, maxAgeMs: opts.confirmMaxAgeMs ?? REFUND_CONFIRM_MAX_AGE_MS }) : (await executeRefund(id, { leaseMs: olderThanMs, maxAttempts: opts.maxAttempts })).status;
+      tally(status);
     } catch (err) {
       out.stillPending++;
       logger.error({ err, refundId: id }, "refund recovery failed");
@@ -588,14 +663,20 @@ export async function completeRefund(refundId: string, providerRef: string | nul
       const part = parts[idx]!;
       if (part.lte(0)) continue;
       await tx.update(orderGroups).set({ refundedTotal: toDb(dec(g.refundedTotal).plus(part)) }).where(eq(orderGroups.id, g.id));
-      // reverse payable and commission in the group's proportion
-      const [payable, commNet, commVat] = allocate(part, [g.supplierPayable, g.commissionNet, g.commissionVat]);
-      await postJournal(tx, o, g, `refund:${r.reason}`, [
-        { account: "supplier_payable", debit: toDb(payable!) },
-        { account: "commission_revenue", debit: toDb(commNet!) },
-        { account: "vat_payable", debit: toDb(commVat!) },
-        { account: "platform_clearing", credit: toDb(part) },
-      ]);
+      // Reverse payable and commission in the group's proportion — but only what was actually booked. A payment that
+      // arrived after the order expired (late_payment) is refunded without ever being posted: no supplier payable,
+      // commission or VAT was recognised, so there is nothing to reverse, and posting the legs would drive the
+      // supplier balance negative. The customer-facing refund state above is unaffected.
+      const [booked] = await tx.select({ id: ledgerEntries.id }).from(ledgerEntries).where(and(eq(ledgerEntries.groupId, g.id), eq(ledgerEntries.memo, "payment"))).limit(1);
+      if (booked) {
+        const [payable, commNet, commVat] = allocate(part, [g.supplierPayable, g.commissionNet, g.commissionVat]);
+        await postJournal(tx, o, g, `refund:${r.reason}`, [
+          { account: "supplier_payable", debit: toDb(payable!) },
+          { account: "commission_revenue", debit: toDb(commNet!) },
+          { account: "vat_payable", debit: toDb(commVat!) },
+          { account: "platform_clearing", credit: toDb(part) },
+        ]);
+      }
       const [gInv] = await tx.select().from(invoices).where(and(eq(invoices.groupId, g.id), sql`${invoices.kind} <> 'credit_note'`)).limit(1);
       if (gInv ?? orig) await issueInvoice(tx, o, g, null, { amount: toDb(part), originalId: (gInv ?? orig)!.id });
     }
@@ -607,6 +688,73 @@ export async function completeRefund(refundId: string, providerRef: string | nul
     }
     if (actor) await audit(actor, { action: "refund.manual_completed", entityType: "refund", entityId: r.id, orgId: o.orgId, data: { amount: r.amount } }, tx);
   });
+}
+
+// ------------------------------------------------------------------------------------------ duplicate captures (manual settlement)
+
+/**
+ * Duplicate captures created by the live flow are refunded automatically (their refund request is written with
+ * the classification). Captures flagged by MIGRATION 0013 on historical data have no refund request and are never
+ * refunded automatically: finance lists them here, verifies each one at the provider and settles it explicitly.
+ */
+export async function listDuplicateCaptures(ctx: Ctx, limit = 200) {
+  authorizeAdmin(ctx, "admin.finance");
+  const rows = await withSystem((tx) =>
+    tx.execute(sql`
+      select pi.id as "intentId", pi.order_id as "orderId", o.code as "orderCode", pi.duplicate_of as "primaryIntentId", pi.amount, pi.currency, pi.provider,
+             pi.succeeded_at as "capturedAt", r.id as "refundId", r.status as "refundStatus",
+             exists (select 1 from order_events e where e.order_id = pi.order_id and e.kind = 'duplicate_payment_dismissed' and e.data->>'intentId' = pi.id::text) as dismissed
+      from payment_intents pi
+      join orders o on o.id = pi.order_id
+      left join refunds r on r.idempotency_key = 'dup:' || pi.id::text
+      where pi.duplicate_of is not null and pi.status = 'succeeded'
+      order by pi.created_at desc
+      limit ${limit}`),
+  );
+  type Row = { intentId: string; orderId: string; orderCode: string; primaryIntentId: string; amount: string; currency: string; provider: string; capturedAt: Date | null; refundId: string | null; refundStatus: string | null; dismissed: boolean };
+  return (rows.rows as Row[]).map((r) => ({
+    ...r,
+    state: (r.dismissed ? "dismissed" : r.refundStatus === "succeeded" ? "refunded" : r.refundStatus ? "refund_in_progress" : "needs_review") as "needs_review" | "refund_in_progress" | "refunded" | "dismissed",
+  }));
+}
+
+/**
+ * Settle a flagged duplicate capture. `refund` first re-reads the payment from the provider and refuses unless it
+ * is still captured for exactly the intent's amount/currency (bank transfers cannot be re-read: the note is the
+ * evidence), then requests the refund through the normal, idempotent, recoverable pipeline. `dismiss` records that
+ * the capture was handled outside the system. Each intent can be settled one way only; repeating the same action
+ * is idempotent. Everything is audited with the finance note.
+ */
+export async function settleDuplicateCapture(ctx: Ctx, intentId: string, input: { action: "refund" | "dismiss"; note: string }): Promise<{ refundId: string | null; status: string }> {
+  authorizeAdmin(ctx, "admin.finance");
+  const note = input.note?.trim() ?? "";
+  if (note.length < 3) throw invalidState("A reconciliation note is required", { key: "note_required" });
+  const [i0] = await withSystem((tx) => tx.select().from(paymentIntents).where(eq(paymentIntents.id, intentId)).limit(1));
+  if (!i0 || !i0.duplicateOf || i0.status !== "succeeded") throw invalidState("Not a duplicate capture", { key: "not_a_duplicate" });
+  if (input.action === "refund" && i0.provider !== "bank_transfer") {
+    const provider = await providerFor(i0.provider);
+    const f: FetchedPayment | null = await provider.fetchPayment(i0.providerRef ?? "").catch(() => null);
+    if (!f || f.status !== "succeeded" || f.amountMinor !== toMinor(i0.amount) || f.currency !== i0.currency) throw invalidState("The capture could not be verified at the provider", { key: "duplicate_not_verified" });
+  }
+  const settled = await withSystem(async (tx) => {
+    const [o] = await tx.select().from(orders).where(eq(orders.id, i0.orderId)).limit(1).for("update");
+    if (!o) throw notFound("Order");
+    const [existing] = await tx.select().from(refunds).where(eq(refunds.idempotencyKey, `dup:${i0.id}`)).limit(1);
+    const dismissed = (await tx.execute(sql`select 1 from order_events where order_id = ${o.id} and kind = 'duplicate_payment_dismissed' and data->>'intentId' = ${i0.id} limit 1`)).rows.length > 0;
+    if (input.action === "dismiss") {
+      if (existing) throw invalidState("Already settled", { key: "duplicate_already_settled" });
+      if (dismissed) return { refundId: null, status: "dismissed", run: null as string | null };
+      await tx.insert(orderEvents).values({ orderId: o.id, userId: o.userId, orgId: o.orgId, kind: "duplicate_payment_dismissed", actorUserId: ctx.userId, data: { intentId: i0.id, note } });
+      await audit(ctx, { action: "payment.duplicate_capture_settled", entityType: "payment_intent", entityId: i0.id, orgId: o.orgId, data: { action: "dismiss", note, orderId: o.id, amount: i0.amount } }, tx);
+      return { refundId: null, status: "dismissed", run: null as string | null };
+    }
+    if (dismissed) throw invalidState("Already settled", { key: "duplicate_already_settled" });
+    const { refund, created } = await requestRefund(tx, { orderId: o.id, groupId: null, intentId: i0.id, amount: i0.amount, reason: "duplicate_payment", idempotencyKey: `dup:${i0.id}`, actorUserId: ctx.userId });
+    if (created) await audit(ctx, { action: "payment.duplicate_capture_settled", entityType: "payment_intent", entityId: i0.id, orgId: o.orgId, data: { action: "refund", note, orderId: o.id, amount: i0.amount, refundId: refund.id } }, tx);
+    return { refundId: refund.id as string | null, status: refund.status, run: (refund.status === "pending" ? refund.id : null) as string | null };
+  });
+  if (settled.run) return executeRefund(settled.run);
+  return { refundId: settled.refundId, status: settled.status };
 }
 
 // ------------------------------------------------------------------------------------------ admin & jobs
