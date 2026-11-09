@@ -58,6 +58,11 @@ export interface PaymentProvider {
   isConfigured(): boolean;
   createPayment(input: CreatePaymentInput): Promise<CreatePaymentResult>;
   fetchPayment(providerRef: string): Promise<FetchedPayment>;
+  /**
+   * Resolves with a definitive outcome (`succeeded`, `pending` = accepted, `failed` = rejected). MUST throw when the
+   * outcome is unknown (timeout, network error, 5xx): the caller keeps the refund pending and retries with the same
+   * `idempotencyKey`, which the provider must honour by replaying the original result.
+   */
   refund(paymentId: string, amountMinor: number, idempotencyKey: string): Promise<RefundResult>;
   /** Verify authenticity and parse; returns null when the signature/secret is invalid. */
   parseWebhook(rawBody: string, headers: Headers): WebhookEvent | null;
@@ -78,6 +83,13 @@ export class TestPaymentProvider implements PaymentProvider {
   readonly name = "test" as const;
   readonly redirects = true;
   private static state = new Map<string, { status: ProviderStatus; amountMinor: number; currency: string }>();
+  /** Refunds by idempotency key (a real provider replays the original result for a repeated key) and totals per payment. */
+  private static refundsByKey = new Map<string, RefundResult>();
+  private static refundedByPayment = new Map<string, number>();
+  /** Tests: minor units this provider has actually refunded for a payment. */
+  static refundedMinor(paymentId: string): number {
+    return TestPaymentProvider.refundedByPayment.get(paymentId) ?? 0;
+  }
   constructor(
     private secret: string,
     private simulatorUrl: (intentId: string) => string,
@@ -102,11 +114,20 @@ export class TestPaymentProvider implements PaymentProvider {
     if (!s) throw new AppError("NOT_FOUND", "Unknown test payment", { key: "not_found" });
     return { providerRef: ref, status: s.status, amountMinor: s.amountMinor, currency: s.currency, paymentId: ref, raw: { ...s } };
   }
-  async refund(paymentId: string, amountMinor: number): Promise<RefundResult> {
+  async refund(paymentId: string, amountMinor: number, idempotencyKey?: string): Promise<RefundResult> {
+    const replay = idempotencyKey ? TestPaymentProvider.refundsByKey.get(idempotencyKey) : undefined;
+    if (replay) return replay;
     const s = TestPaymentProvider.state.get(paymentId);
-    if (!s || s.status !== "succeeded") return { status: "failed", providerRef: null, failureReason: "not_captured" };
-    if (amountMinor <= 0 || amountMinor > s.amountMinor) return { status: "failed", providerRef: null, failureReason: "invalid_amount" };
-    return { status: "succeeded", providerRef: `${paymentId}_rf_${Date.now()}` };
+    let result: RefundResult;
+    const done = TestPaymentProvider.refundedByPayment.get(paymentId) ?? 0;
+    if (!s || s.status !== "succeeded") result = { status: "failed", providerRef: null, failureReason: "not_captured" };
+    else if (amountMinor <= 0 || done + amountMinor > s.amountMinor) result = { status: "failed", providerRef: null, failureReason: "invalid_amount" };
+    else {
+      TestPaymentProvider.refundedByPayment.set(paymentId, done + amountMinor);
+      result = { status: "succeeded", providerRef: `${paymentId}_rf_${idempotencyKey ?? Date.now()}` };
+    }
+    if (idempotencyKey) TestPaymentProvider.refundsByKey.set(idempotencyKey, result);
+    return result;
   }
   sign(body: string) {
     return hmacSha256(this.secret, body);
@@ -210,12 +231,21 @@ export class MoyasarProvider implements PaymentProvider {
       raw: inv as unknown as Record<string, unknown>,
     };
   }
+  /**
+   * A 4xx answer is a definitive rejection (`failed`). Anything else — network error, timeout, 5xx, 408/429,
+   * an unparseable reply — leaves the outcome unknown, so it is thrown for the caller to retry with the same
+   * idempotency key rather than reported as a terminal failure.
+   */
   async refund(paymentId: string, amountMinor: number, idempotencyKey: string): Promise<RefundResult> {
     try {
       const p = await this.call<{ id: string; status: string }>("POST", `/payments/${encodeURIComponent(paymentId)}/refund`, { amount: amountMinor }, idempotencyKey);
       return { status: p.status === "refunded" ? "succeeded" : "pending", providerRef: p.id };
     } catch (e) {
-      return { status: "failed", providerRef: null, failureReason: e instanceof Error ? e.message : String(e) };
+      const status = e instanceof AppError ? Number((e.details as { status?: number } | undefined)?.status) : NaN;
+      if (e instanceof AppError && status >= 400 && status < 500 && status !== 408 && status !== 429) {
+        return { status: "failed", providerRef: null, failureReason: e.message };
+      }
+      throw e;
     }
   }
   parseWebhook(rawBody: string): WebhookEvent | null {

@@ -1,8 +1,9 @@
-import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { allocate, AppError, conflict, dec, invalidState, money, notFound, sha256, toDb, uuidv7 } from "@platform/core";
 import { env } from "@platform/core/env";
+import { logger } from "@platform/core/logger";
 import { nextDocNumber, withContext, withSystem, type Tx } from "@platform/db";
-import { authUsers, invoices, ledgerEntries, memberships, membershipRoles, orderEvents, orderGroups, orderLines, orders, organizations, paymentAttempts, paymentIntents, paymentWebhookEvents, refunds, roles } from "@platform/db/schema";
+import { authUsers, invoices, ledgerEntries, memberships, membershipRoles, orderEvents, orderGroups, orderLines, orders, organizations, paymentAttempts, paymentIntents, paymentWebhookEvents, refunds, returnRequests, roles } from "@platform/db/schema";
 import { BankTransferProvider, fromMinor, getPaymentProvider, MoyasarProvider, setPaymentProvider, TestPaymentProvider, toMinor, type FetchedPayment, type PaymentProvider } from "@platform/integrations/payments";
 import { isSaudiVatNumber, zatcaQrTlv } from "@platform/integrations/zatca";
 import { audit } from "../audit";
@@ -124,6 +125,35 @@ export async function retryPayment(ctx: Ctx, orderId: string, locale: "ar" | "en
 
 // ------------------------------------------------------------------------------------------ webhooks & sync
 
+/** A 'received' event whose last attempt is older than this is considered abandoned (worker crashed). */
+export const WEBHOOK_LEASE_MS = 5 * 60_000;
+
+/**
+ * Take responsibility for processing a provider event. Returns the row id when this call should process it:
+ * a first delivery, a redelivery of an event whose earlier processing FAILED, or one stranded in 'received'
+ * past its lease. Returns null for events that are processed, ignored or being processed right now. The
+ * re-claim is a single conditional UPDATE, so concurrent redeliveries cannot both win.
+ */
+async function claimWebhookEvent(providerName: string, ev: { eventId: string; type: string; raw: Record<string, unknown> }): Promise<string | null> {
+  return withSystem(async (tx) => {
+    const inserted = await tx.insert(paymentWebhookEvents).values({ provider: providerName, eventId: ev.eventId, eventType: ev.type, signatureValid: true, payload: ev.raw }).onConflictDoNothing().returning({ id: paymentWebhookEvents.id });
+    if (inserted.length) return inserted[0]!.id;
+    const reclaimed = await tx
+      .update(paymentWebhookEvents)
+      .set({ status: "received", error: null, processedAt: null, attempts: sql`${paymentWebhookEvents.attempts} + 1`, lastAttemptAt: sql`now()` })
+      .where(
+        and(
+          eq(paymentWebhookEvents.provider, providerName),
+          eq(paymentWebhookEvents.eventId, ev.eventId),
+          eq(paymentWebhookEvents.signatureValid, true),
+          or(eq(paymentWebhookEvents.status, "failed"), and(eq(paymentWebhookEvents.status, "received"), sql`${paymentWebhookEvents.lastAttemptAt} <= now() - (${WEBHOOK_LEASE_MS}::double precision * interval '1 millisecond')`)),
+        ),
+      )
+      .returning({ id: paymentWebhookEvents.id });
+    return reclaimed[0]?.id ?? null;
+  });
+}
+
 export async function processWebhook(providerName: string, rawBody: string, headers: Headers): Promise<{ status: number; result: string }> {
   if (!["test", "moyasar"].includes(providerName)) return { status: 404, result: "unknown_provider" };
   const provider = await providerFor(providerName);
@@ -137,11 +167,8 @@ export async function processWebhook(providerName: string, rawBody: string, head
     );
     return { status: 401, result: "invalid_signature" };
   }
-  const inserted = await withSystem((tx) =>
-    tx.insert(paymentWebhookEvents).values({ provider: providerName, eventId: ev.eventId, eventType: ev.type, signatureValid: true, payload: ev.raw }).onConflictDoNothing().returning({ id: paymentWebhookEvents.id }),
-  );
-  if (!inserted.length) return { status: 200, result: "duplicate" };
-  const eventRowId = inserted[0]!.id;
+  const eventRowId = await claimWebhookEvent(providerName, ev);
+  if (!eventRowId) return { status: 200, result: "duplicate" };
   try {
     if (!ev.providerRef) throw new Error("missing payment reference");
     const [intent] = await withSystem((tx) => tx.select().from(paymentIntents).where(and(eq(paymentIntents.provider, providerName), eq(paymentIntents.providerRef, ev.providerRef!))).limit(1));
@@ -189,23 +216,39 @@ async function supplierUserIds(tx: Tx, orgId: string, perm: string) {
 /**
  * Apply an authoritative provider status to an intent and its order. Idempotent; amount and currency
  * must match the intent exactly or the payment is flagged for manual review (never marked paid).
+ *
+ * Lock order (shared with refunds): order → payment intent → refund → group. Holding the order lock for
+ * the whole decision serialises concurrent notifications for different intents of the same order, so
+ * exactly one capture becomes the order's payment and any further capture is flagged as a duplicate
+ * (`duplicate_of`) and refunded in full. The refund request is written in the same transaction as the
+ * classification; the provider call happens after commit and is recoverable (see `executeRefund`).
  */
 export async function applyProviderStatus(intentId: string, f: FetchedPayment, source: string): Promise<string> {
-  let refundAfter: { orderId: string; amount: string } | null = null;
+  let refundAfter: string | null = null;
   const outcome = await withSystem(async (tx) => {
+    const [i0] = await tx.select({ orderId: paymentIntents.orderId }).from(paymentIntents).where(eq(paymentIntents.id, intentId)).limit(1);
+    if (!i0) throw notFound("Payment intent");
+    const [o] = await tx.select().from(orders).where(eq(orders.id, i0.orderId)).limit(1).for("update");
+    if (!o) throw notFound("Order");
     const [i] = await tx.select().from(paymentIntents).where(eq(paymentIntents.id, intentId)).limit(1).for("update");
     if (!i) throw notFound("Payment intent");
     await tx.insert(paymentAttempts).values({ intentId, kind: source, status: f.status, detail: { amountMinor: f.amountMinor, currency: f.currency, paymentId: f.paymentId } });
     if (i.status === "succeeded" || i.status === f.status) return "noop";
     if (f.status === "pending") return "pending";
-    const [o] = await tx.select().from(orders).where(eq(orders.id, i.orderId)).limit(1).for("update");
-    if (!o) throw notFound("Order");
     if (f.status !== "succeeded") {
       const st = f.status === "expired" ? "expired" : f.status === "cancelled" ? "cancelled" : "failed";
       await tx.update(paymentIntents).set({ status: st, failureReason: f.failureReason ?? f.status }).where(eq(paymentIntents.id, i.id));
       if (o.paymentStatus !== "paid") {
-        await tx.update(orders).set({ paymentStatus: "failed", status: o.status === "pending_payment" ? "payment_failed" : o.status }).where(eq(orders.id, o.id));
-        await tx.insert(orderEvents).values({ orderId: o.id, userId: o.userId, orgId: o.orgId, kind: "payment_failed", data: { reason: f.failureReason ?? f.status } });
+        // a superseded intent ending badly must not fail an order that another intent can still pay
+        const [other] = await tx
+          .select({ id: paymentIntents.id })
+          .from(paymentIntents)
+          .where(and(eq(paymentIntents.orderId, o.id), ne(paymentIntents.id, i.id), inArray(paymentIntents.status, ["created", "pending", "succeeded"])))
+          .limit(1);
+        if (!other) {
+          await tx.update(orders).set({ paymentStatus: "failed", status: o.status === "pending_payment" ? "payment_failed" : o.status }).where(eq(orders.id, o.id));
+          await tx.insert(orderEvents).values({ orderId: o.id, userId: o.userId, orgId: o.orgId, kind: "payment_failed", data: { reason: f.failureReason ?? f.status } });
+        }
       }
       return st;
     }
@@ -214,20 +257,37 @@ export async function applyProviderStatus(intentId: string, f: FetchedPayment, s
       await audit(SYS_CTX, { action: "payment.amount_mismatch", entityType: "payment_intent", entityId: i.id, orgId: o.orgId, data: { expected: i.amount, received: fromMinor(f.amountMinor), currency: f.currency } }, tx);
       return "amount_mismatch";
     }
+    const [primary] = await tx
+      .select({ id: paymentIntents.id })
+      .from(paymentIntents)
+      .where(and(eq(paymentIntents.orderId, o.id), eq(paymentIntents.status, "succeeded"), isNull(paymentIntents.duplicateOf), ne(paymentIntents.id, i.id)))
+      .limit(1);
+    if (primary) {
+      // the order is already paid by another capture: this money must go back, and must not touch the books
+      await tx.update(paymentIntents).set({ status: "succeeded", succeededAt: new Date(), providerPaymentId: f.paymentId ?? i.providerRef, duplicateOf: primary.id }).where(eq(paymentIntents.id, i.id));
+      await tx.insert(orderEvents).values({ orderId: o.id, userId: o.userId, orgId: o.orgId, kind: "duplicate_payment", data: { intentId: i.id, primaryIntentId: primary.id, amount: i.amount } });
+      await audit(SYS_CTX, { action: "payment.duplicate_capture", entityType: "payment_intent", entityId: i.id, orgId: o.orgId, data: { orderId: o.id, primaryIntentId: primary.id, amount: i.amount, provider: i.provider } }, tx);
+      refundAfter = (await requestRefund(tx, { orderId: o.id, groupId: null, intentId: i.id, amount: i.amount, reason: "duplicate_payment", idempotencyKey: `dup:${i.id}`, actorUserId: null })).refund.id;
+      return "refund_duplicate_payment";
+    }
     await tx.update(paymentIntents).set({ status: "succeeded", succeededAt: new Date(), providerPaymentId: f.paymentId ?? i.providerRef }).where(eq(paymentIntents.id, i.id));
     if (o.status === "expired" || o.status === "cancelled") {
       // paid after expiry: goods are no longer reserved → refund automatically
       await tx.update(orders).set({ paymentStatus: "paid" }).where(eq(orders.id, o.id));
       await tx.insert(orderEvents).values({ orderId: o.id, userId: o.userId, orgId: o.orgId, kind: "paid_after_expiry" });
-      refundAfter = { orderId: o.id, amount: i.amount };
+      refundAfter = (await requestRefund(tx, { orderId: o.id, groupId: null, amount: i.amount, reason: "late_payment", idempotencyKey: `late:${intentId}`, actorUserId: null })).refund.id;
       return "refund_late_payment";
     }
     await markOrderPaid(tx, o);
     return "succeeded";
   });
   if (refundAfter) {
-    const r = refundAfter as { orderId: string; amount: string };
-    await refundPayment({ orderId: r.orderId, groupId: null, amount: r.amount, reason: "late_payment", idempotencyKey: `late:${intentId}`, actorUserId: null });
+    try {
+      await executeRefund(refundAfter);
+    } catch (err) {
+      // the refund request is durable; the recovery job finishes it. The payment itself is already applied.
+      logger.error({ err, refundId: refundAfter }, "refund execution failed after payment classification");
+    }
   }
   return outcome;
 }
@@ -353,70 +413,171 @@ export interface RefundInput {
   orderId: string;
   groupId: string | null;
   amount: string;
-  reason: "cancellation" | "return" | "adjustment" | "late_payment";
+  reason: "cancellation" | "return" | "adjustment" | "late_payment" | "duplicate_payment";
   idempotencyKey: string;
   actorUserId: string | null;
+  /** refund a specific captured intent (duplicate captures); default: the order's primary capture */
+  intentId?: string;
+}
+
+/** Minimum time between provider attempts for one refund, and attempts before finance takes over. */
+export const REFUND_RETRY_AFTER_MS = 60_000;
+export const REFUND_MAX_ATTEMPTS = 6;
+
+/**
+ * Record a refund request (idempotent per key). Bounded by what was captured and not yet refunded, per
+ * intent and per supplier group, including refunds still in flight. Runs in the caller's transaction and
+ * locks order → intent → group so it can be composed with payment classification without deadlocks.
+ */
+async function requestRefund(tx: Tx, input: RefundInput): Promise<{ refund: typeof refunds.$inferSelect; created: boolean }> {
+  const amt = money(input.amount);
+  if (amt.lte(0)) throw invalidState("Refund amount must be positive", { key: "refund_invalid" });
+  const [o] = await tx.select().from(orders).where(eq(orders.id, input.orderId)).limit(1).for("update");
+  if (!o) throw notFound("Order");
+  // checked under the order lock: concurrent callers with one key queue here and then see the first one's row
+  const [existing] = await tx.select().from(refunds).where(eq(refunds.idempotencyKey, input.idempotencyKey)).limit(1);
+  if (existing) return { refund: existing, created: false };
+  const intentFilter = input.intentId
+    ? and(eq(paymentIntents.id, input.intentId), eq(paymentIntents.orderId, o.id), eq(paymentIntents.status, "succeeded"))
+    : and(eq(paymentIntents.orderId, o.id), eq(paymentIntents.status, "succeeded"), isNull(paymentIntents.duplicateOf));
+  const [i] = await tx.select().from(paymentIntents).where(intentFilter).limit(1).for("update");
+  if (!i) throw invalidState("Order has no captured payment", { key: "refund_not_paid" });
+  const inFlight = ["pending", "manual_required"];
+  const pendingSum = await tx.select({ s: sql<string>`coalesce(sum(${refunds.amount}),0)::text` }).from(refunds).where(and(eq(refunds.intentId, i.id), inArray(refunds.status, inFlight)));
+  const capacity = dec(i.amount).minus(dec(i.refundedAmount)).minus(dec(pendingSum[0]?.s ?? 0));
+  if (amt.gt(capacity)) throw invalidState("Refund exceeds the refundable amount", { key: "refund_exceeds", details: { refundable: toDb(capacity) } });
+  let g: typeof orderGroups.$inferSelect | undefined;
+  if (input.groupId) {
+    [g] = await tx.select().from(orderGroups).where(and(eq(orderGroups.id, input.groupId), eq(orderGroups.orderId, o.id))).limit(1).for("update");
+    if (!g) throw notFound("Order group");
+    const groupPending = await tx.select({ s: sql<string>`coalesce(sum(${refunds.amount}),0)::text` }).from(refunds).where(and(eq(refunds.groupId, g.id), inArray(refunds.status, inFlight)));
+    if (amt.gt(dec(g.total).minus(dec(g.refundedTotal)).minus(dec(groupPending[0]?.s ?? 0)))) throw invalidState("Refund exceeds the supplier group total", { key: "refund_exceeds" });
+  }
+  const [r] = await tx
+    .insert(refunds)
+    .values({ orderId: o.id, groupId: g?.id ?? null, intentId: i.id, userId: o.userId, orgId: o.orgId, supplierOrgId: g?.supplierOrgId ?? null, amount: toDb(amt), reason: input.reason, idempotencyKey: input.idempotencyKey, requestedBy: input.actorUserId })
+    .returning();
+  return { refund: r!, created: true };
 }
 
 /**
- * Refund (part of) a captured payment. Bounded by what was paid and not yet refunded, per order and per
- * supplier group. The provider is called after the refund row is committed; balances and the ledger
- * move only when the provider confirms. Bank-transfer refunds require a manual, audited confirmation.
+ * Refund (part of) a captured payment. The request is committed first, then the provider is called;
+ * balances and the ledger move only when the provider confirms. Never fails because the provider is
+ * unreachable: the refund stays `pending`, is retried by `recoverPendingRefunds` (or by calling this
+ * again with the same key) using the same idempotency key, and moves to `manual_required` once the
+ * attempt budget is spent. Bank-transfer refunds require a manual, audited confirmation.
  */
 export async function refundPayment(input: RefundInput): Promise<{ refundId: string; status: string }> {
-  const amt = money(input.amount);
-  if (amt.lte(0)) throw invalidState("Refund amount must be positive", { key: "refund_invalid" });
-  const prep = await withSystem(async (tx) => {
-    const [existing] = await tx.select().from(refunds).where(eq(refunds.idempotencyKey, input.idempotencyKey)).limit(1);
-    if (existing) return { existing };
-    const [o] = await tx.select().from(orders).where(eq(orders.id, input.orderId)).limit(1).for("update");
-    if (!o) throw notFound("Order");
-    const [i] = await tx.select().from(paymentIntents).where(and(eq(paymentIntents.orderId, o.id), eq(paymentIntents.status, "succeeded"))).limit(1).for("update");
-    if (!i) throw invalidState("Order has no captured payment", { key: "refund_not_paid" });
-    const pendingSum = await tx.select({ s: sql<string>`coalesce(sum(${refunds.amount}),0)::text` }).from(refunds).where(and(eq(refunds.intentId, i.id), inArray(refunds.status, ["pending", "manual_required"])));
-    const capacity = dec(i.amount).minus(dec(i.refundedAmount)).minus(dec(pendingSum[0]?.s ?? 0));
-    if (amt.gt(capacity)) throw invalidState("Refund exceeds the refundable amount", { key: "refund_exceeds", details: { refundable: toDb(capacity) } });
-    let g: typeof orderGroups.$inferSelect | undefined;
-    if (input.groupId) {
-      [g] = await tx.select().from(orderGroups).where(and(eq(orderGroups.id, input.groupId), eq(orderGroups.orderId, o.id))).limit(1).for("update");
-      if (!g) throw notFound("Order group");
-      if (amt.gt(dec(g.total).minus(dec(g.refundedTotal)))) throw invalidState("Refund exceeds the supplier group total", { key: "refund_exceeds" });
-    }
-    const [r] = await tx
-      .insert(refunds)
-      .values({ orderId: o.id, groupId: g?.id ?? null, intentId: i.id, userId: o.userId, orgId: o.orgId, supplierOrgId: g?.supplierOrgId ?? null, amount: toDb(amt), reason: input.reason, idempotencyKey: input.idempotencyKey, requestedBy: input.actorUserId })
+  const { refund } = await withSystem((tx) => requestRefund(tx, input));
+  if (refund.status !== "pending") return { refundId: refund.id, status: refund.status };
+  return executeRefund(refund.id);
+}
+
+/**
+ * One provider attempt for a pending refund. The attempt is claimed with a conditional UPDATE (lease), so
+ * concurrent callers, retries and the recovery job never call the provider at the same time, and a refund
+ * the provider already acknowledged (provider_ref set) is never re-sent. A failed or timed-out call has an
+ * unknown outcome; retrying with the same idempotency key is safe at the provider, so the refund simply
+ * stays pending.
+ */
+async function executeRefund(refundId: string, opts: { leaseMs?: number; maxAttempts?: number } = {}): Promise<{ refundId: string; status: string }> {
+  const leaseMs = opts.leaseMs ?? REFUND_RETRY_AFTER_MS;
+  const maxAttempts = opts.maxAttempts ?? REFUND_MAX_ATTEMPTS;
+  const claimed = await withSystem(async (tx) => {
+    const rows = await tx
+      .update(refunds)
+      .set({ attempts: sql`${refunds.attempts} + 1`, lastAttemptAt: sql`now()` })
+      .where(and(eq(refunds.id, refundId), eq(refunds.status, "pending"), isNull(refunds.providerRef), sql`(${refunds.lastAttemptAt} is null or ${refunds.lastAttemptAt} <= now() - (${leaseMs}::double precision * interval '1 millisecond'))`))
       .returning();
-    return { refund: r!, intent: i };
+    return rows[0] ?? null;
   });
-  if ("existing" in prep && prep.existing) return { refundId: prep.existing.id, status: prep.existing.status };
-  const { refund, intent } = prep as { refund: typeof refunds.$inferSelect; intent: typeof paymentIntents.$inferSelect };
-  const provider = await providerFor(intent.provider);
-  const res = await provider.refund(intent.providerPaymentId ?? intent.providerRef ?? "", toMinor(refund.amount), refund.idempotencyKey);
+  if (!claimed) {
+    const [cur] = await withSystem((tx) => tx.select({ status: refunds.status }).from(refunds).where(eq(refunds.id, refundId)).limit(1));
+    return { refundId, status: cur?.status ?? "pending" };
+  }
+  const [intent] = await withSystem((tx) => tx.select().from(paymentIntents).where(eq(paymentIntents.id, claimed.intentId!)).limit(1));
+  if (!intent) throw notFound("Payment");
+  let res: Awaited<ReturnType<PaymentProvider["refund"]>>;
+  try {
+    const provider = await providerFor(intent.provider);
+    res = await provider.refund(intent.providerPaymentId ?? intent.providerRef ?? "", toMinor(claimed.amount), claimed.idempotencyKey);
+  } catch (e) {
+    const detail = e instanceof Error ? e.message.slice(0, 300) : String(e);
+    const exhausted = claimed.attempts >= maxAttempts;
+    await withSystem(async (tx) => {
+      await tx
+        .update(refunds)
+        .set({ failureReason: "provider_unreachable", ...(exhausted ? { status: "manual_required" } : {}) })
+        .where(and(eq(refunds.id, claimed.id), eq(refunds.status, "pending")));
+      await tx.insert(paymentAttempts).values({ intentId: intent.id, kind: "refund", status: exhausted ? "manual_required" : "error", detail: { refundId: claimed.id, attempt: claimed.attempts, error: detail } });
+      if (exhausted) await audit(SYS_CTX, { action: "refund.escalated", entityType: "refund", entityId: claimed.id, orgId: claimed.orgId, data: { attempts: claimed.attempts, reason: "provider_unreachable" } }, tx);
+    });
+    return { refundId: claimed.id, status: exhausted ? "manual_required" : "pending" };
+  }
   if (res.status === "succeeded") {
-    await completeRefund(refund.id, res.providerRef);
-    return { refundId: refund.id, status: "succeeded" };
+    await completeRefund(claimed.id, res.providerRef);
+    return { refundId: claimed.id, status: "succeeded" };
   }
   const status = res.failureReason === "manual_refund_required" ? "manual_required" : res.status === "pending" ? "pending" : "failed";
   await withSystem(async (tx) => {
-    await tx.update(refunds).set({ status, failureReason: res.failureReason ?? null, providerRef: res.providerRef }).where(eq(refunds.id, refund.id));
-    await tx.insert(paymentAttempts).values({ intentId: intent.id, kind: "refund", status, detail: { refundId: refund.id, reason: res.failureReason ?? null } });
+    await tx.update(refunds).set({ status, failureReason: res.failureReason ?? null, providerRef: res.providerRef }).where(and(eq(refunds.id, claimed.id), eq(refunds.status, "pending")));
+    await tx.insert(paymentAttempts).values({ intentId: intent.id, kind: "refund", status, detail: { refundId: claimed.id, reason: res.failureReason ?? null } });
   });
-  return { refundId: refund.id, status };
+  return { refundId: claimed.id, status };
+}
+
+/**
+ * Job: retry refunds whose outcome is unknown (the provider call failed or the process died before it
+ * returned): pending, not acknowledged by the provider, last attempt older than `olderThanMs`.
+ */
+export async function recoverPendingRefunds(opts: { olderThanMs?: number; maxAttempts?: number; limit?: number } = {}): Promise<{ examined: number; completed: number; stillPending: number; escalated: number }> {
+  const olderThanMs = opts.olderThanMs ?? REFUND_RETRY_AFTER_MS * 2;
+  const due = await withSystem((tx) =>
+    tx
+      .select({ id: refunds.id })
+      .from(refunds)
+      .where(and(eq(refunds.status, "pending"), isNull(refunds.providerRef), sql`coalesce(${refunds.lastAttemptAt}, ${refunds.createdAt}) <= now() - (${olderThanMs}::double precision * interval '1 millisecond')`))
+      .orderBy(refunds.createdAt)
+      .limit(opts.limit ?? 100),
+  );
+  const out = { examined: due.length, completed: 0, stillPending: 0, escalated: 0 };
+  for (const { id } of due) {
+    try {
+      const r = await executeRefund(id, { leaseMs: olderThanMs, maxAttempts: opts.maxAttempts });
+      if (r.status === "succeeded") out.completed++;
+      else if (r.status === "manual_required") out.escalated++;
+      else out.stillPending++;
+    } catch (err) {
+      out.stillPending++;
+      logger.error({ err, refundId: id }, "refund recovery failed");
+    }
+  }
+  return out;
 }
 
 /** Apply a confirmed refund to balances, ledger and a credit note. Idempotent. */
 export async function completeRefund(refundId: string, providerRef: string | null, actor?: Ctx) {
   if (actor) authorizeAdmin(actor, "admin.finance");
   await withSystem(async (tx) => {
+    const [r0] = await tx.select().from(refunds).where(eq(refunds.id, refundId)).limit(1);
+    if (!r0) throw notFound("Refund");
+    // lock order: order → intent → refund (same as payment classification and refund requests)
+    const [o] = await tx.select().from(orders).where(eq(orders.id, r0.orderId)).limit(1).for("update");
+    const [i] = await tx.select().from(paymentIntents).where(eq(paymentIntents.id, r0.intentId!)).limit(1).for("update");
     const [r] = await tx.select().from(refunds).where(eq(refunds.id, refundId)).limit(1).for("update");
     if (!r) throw notFound("Refund");
     if (r.status === "succeeded") return;
     if (r.status === "failed") throw invalidState("Refund failed", { key: "refund_failed" });
-    const [i] = await tx.select().from(paymentIntents).where(eq(paymentIntents.id, r.intentId!)).limit(1).for("update");
-    const [o] = await tx.select().from(orders).where(eq(orders.id, r.orderId)).limit(1).for("update");
     if (!i || !o) throw notFound("Payment");
-    await tx.update(refunds).set({ status: "succeeded", providerRef, processedAt: new Date() }).where(eq(refunds.id, r.id));
+    await tx.update(refunds).set({ status: "succeeded", providerRef: providerRef ?? r.providerRef, failureReason: null, processedAt: new Date() }).where(eq(refunds.id, r.id));
     await tx.update(paymentIntents).set({ refundedAmount: toDb(dec(i.refundedAmount).plus(dec(r.amount))) }).where(eq(paymentIntents.id, i.id));
+    if (r.reason === "duplicate_payment") {
+      // the extra capture was never booked: only the customer's money moves, balances and the ledger stay as they are
+      await tx.insert(orderEvents).values({ orderId: o.id, userId: o.userId, orgId: o.orgId, kind: "duplicate_payment_refunded", data: { amount: r.amount, intentId: i.id } });
+      await notifyUsers({ userIds: [o.userId], kind: "order.status_changed", params: { orderNumber: o.code, supplierName: "", status: `refund ${r.amount} SAR` }, link: `/account/orders/${o.id}`, dedupeKey: `refund:${r.id}`, email: true }, tx);
+      if (actor) await audit(actor, { action: "refund.manual_completed", entityType: "refund", entityId: r.id, orgId: o.orgId, data: { amount: r.amount } }, tx);
+      return;
+    }
     const orderRefunded = dec(o.refundedTotal).plus(dec(r.amount));
     await tx.update(orders).set({ refundedTotal: toDb(orderRefunded), paymentStatus: orderRefunded.gte(dec(o.total)) ? "refunded" : "partially_refunded" }).where(eq(orders.id, o.id));
     // allocate the refund over the groups it concerns (the named group, else pro rata over all groups)
@@ -440,6 +601,10 @@ export async function completeRefund(refundId: string, providerRef: string | nul
     }
     await tx.insert(orderEvents).values({ orderId: o.id, groupId: r.groupId, userId: o.userId, orgId: o.orgId, supplierOrgId: r.supplierOrgId, kind: "refunded", data: { amount: r.amount, reason: r.reason } });
     await notifyUsers({ userIds: [o.userId], kind: "order.status_changed", params: { orderNumber: o.code, supplierName: "", status: `refund ${r.amount} SAR` }, link: `/account/orders/${o.id}`, dedupeKey: `refund:${r.id}`, email: true }, tx);
+    if (r.reason === "return" && r.idempotencyKey.startsWith("return:")) {
+      // a return whose refund completed later (recovery job / manual confirmation) is now refunded
+      await tx.update(returnRequests).set({ status: "refunded", refundId: r.id }).where(and(eq(returnRequests.id, r.idempotencyKey.slice("return:".length)), inArray(returnRequests.status, ["received", "approved"])));
+    }
     if (actor) await audit(actor, { action: "refund.manual_completed", entityType: "refund", entityId: r.id, orgId: o.orgId, data: { amount: r.amount } }, tx);
   });
 }
