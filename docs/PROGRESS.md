@@ -124,3 +124,4 @@ FINAL_AUDIT.md written. Next steps belong to the owner (decisions, accounts, sta
 - 2026-11-09: Phase 10 complete — FINAL_AUDIT.md; tests: unit 72, integration 56, E2E 23 (store spec re-run after final fix).
 - 2026-11-09: Release verification — unit 72, integration 61, E2E 23/23 (clean run); fixed suspended-organization visibility, build-time DATABASE_URL dependency, web TypeScript dependency; RELEASE_READINESS.md.
 - 2026-11-09: UI/UX redesign (design system, store, portals, dashboards, RFQ comparison) — no API/business-logic changes; VISUAL_AUDIT.md, DESIGN_SYSTEM.md, UI_UX_FINAL_REPORT.md; tests: unit 72, integration 61, E2E 23/23 (clean run).
+- 2026-11-10: Admin supplier products (branch `feature/admin-supplier-products`, PR pending) — admins list/create/edit/(un)publish supplier products on the supplier's behalf, reason required, audited on the supplier org; prices/stock read-only; tests: unit 72, integration 68, E2E 24/24.

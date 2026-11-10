@@ -96,3 +96,4 @@ RLS; brand facet cached 5 min; batched stock lookups. Not measured: 20k-line BOQ
 - `sendDelivery` rethrew inside the transaction so attempt/failure records were rolled back → persisted, then rethrown after commit (procurement.int).
 - Dual-button forms (save vs submit quotation, approve vs reject) set intent via state in onClick, racing the submit → submitter `name`/`value` used instead.
 - E2E located POs by number; numbers are per buyer org so a supplier sees duplicates from different buyers → navigate by id (list shows buyer name).
+| 2026-11-10 | Admin supplier products (unit/integration/E2E) | `pnpm test` / `test:integration` / `test:e2e` | 72/72 · 68/68 · 24/24 passed | + admin-products.int (7) and e2e admin-products.spec (list, create on behalf, edit, audit) |

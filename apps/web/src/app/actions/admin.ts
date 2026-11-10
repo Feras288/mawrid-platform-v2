@@ -4,8 +4,10 @@ import { z } from "zod";
 import { createCanonical, createCategory, resolveDuplicate, updateCategory } from "@platform/modules/catalog";
 import { getSupplierDocumentUrlForAdmin } from "@platform/modules/files";
 import { decideSupplier, reviewDocument, startReview } from "@platform/modules/suppliers";
+import { adminCreateProduct, adminSetPublished, adminUpdateProduct } from "@platform/modules/supplier-products";
 import { formToObject, run } from "@/lib/action";
 import { getCtx } from "@/lib/ctx";
+import { productFromForm } from "@/lib/product-form";
 
 const uuid = z.string().uuid();
 
@@ -75,4 +77,24 @@ export async function createCanonicalAction(fd: FormData) {
 
 export async function resolveDuplicateAction(candidateId: string, action: "dismiss" | "merge", keepId?: string) {
   return run(async () => resolveDuplicate(await getCtx(), uuid.parse(candidateId), action === "merge" ? { action, keepId: uuid.parse(keepId) } : { action: "dismiss" }));
+}
+
+/** Create or edit a supplier product on the supplier's behalf (reason required, audited). */
+export async function adminSaveProductAction(fd: FormData) {
+  return run(async () => {
+    const o = formToObject(fd);
+    const ctx = await getCtx();
+    const input = productFromForm(o);
+    const reason = String(o.reason ?? "");
+    const p = o.id ? await adminUpdateProduct(ctx, uuid.parse(o.id), input, reason) : await adminCreateProduct(ctx, uuid.parse(o.supplierOrgId), input, reason);
+    return { id: p.id };
+  });
+}
+
+export async function adminSetPublishedAction(fd: FormData) {
+  return run(async () => {
+    const o = formToObject(fd);
+    await adminSetPublished(await getCtx(), uuid.parse(o.id), o.published === "1", String(o.reason ?? ""));
+    return true;
+  });
 }

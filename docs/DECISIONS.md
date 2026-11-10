@@ -151,3 +151,14 @@ counts through `store_catalog`, an owner-privileged view that encodes the public
 Listing price for filter/sort is a trigger-maintained `store_price` (refreshed daily for validity windows);
 the price shown is always resolved per viewer (enterprise / contract / regional). Measured p95 251 ms
 (service) / 328 ms (HTTP) at 100k products.
+
+## ADR-026 — Admin management of supplier products (2026-11-10)
+Requested by the owner. Platform admins with `admin.catalog` can list all supplier products, create a product
+for a chosen supplier and edit / (un)publish any supplier product. The product stays owned by the supplier
+(`org_id` = supplier); the same validation, SKU uniqueness and publishing rules apply (shared internal functions,
+not a parallel code path). Every write requires a reason (3–500 chars) and is audited with the admin as actor and
+`org_id` = the supplier, so the supplier sees it in its own audit log; edits record the fields that actually
+changed. Prices and stock remain the supplier's responsibility and are shown read-only in the admin page.
+Data access runs in system context after `authorizeAdmin`; supplier RLS is unchanged. (ADR-025 is used by the
+hardening branch.)
+
