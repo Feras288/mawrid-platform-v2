@@ -2,12 +2,13 @@ import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { AppError, D, dec, invalidState, notFound, unit, validation, type Dec } from "@platform/core";
 import { normalizeText } from "@platform/core/text";
-import { likeEscape, pageParams, withContext, withPublic, type Tx } from "@platform/db";
+import { likeEscape, pageParams, withContext, withPublic, withSystem, type Tx } from "@platform/db";
 import {
   canonicalProducts,
   categories,
   inventoryLevels,
   inventoryMovements,
+  organizations,
   priceListItems,
   priceLists,
   supplierProducts,
@@ -16,7 +17,7 @@ import {
   warehouses,
 } from "@platform/db/schema";
 import { audit } from "../audit";
-import { authorize, requireOrg } from "../authz";
+import { authorize, authorizeAdmin, requireOrg } from "../authz";
 import { attributesForCategory, ensureBrand, normalizeAttributes } from "../catalog";
 import { dbCtx, type Ctx } from "../context";
 
@@ -73,30 +74,98 @@ async function validateProduct(tx: Tx, d: z.output<typeof productSchema>) {
   return normalizeAttributes(d.attributes, defs);
 }
 
+/** Who is acting on a supplier's catalogue: the supplier itself, or a platform admin on its behalf. */
+type Actor = { ctx: Ctx; orgId: string; onBehalf?: { reason: string } };
+
+const auditExtra = (a: Actor) => (a.onBehalf ? { onBehalfOf: a.orgId, reason: a.onBehalf.reason } : {});
+
+async function insertProduct(tx: Tx, a: Actor, d: z.output<typeof productSchema>) {
+  const attributes = await validateProduct(tx, d);
+  const [dup] = await tx.select({ id: supplierProducts.id }).from(supplierProducts).where(and(eq(supplierProducts.orgId, a.orgId), eq(supplierProducts.sku, d.sku))).limit(1);
+  if (dup) throw new AppError("CONFLICT", "SKU already exists", { key: "sku_exists", details: { sku: d.sku } });
+  const brandId = d.brandName ? await ensureBrand(tx, d.brandName) : null;
+  const [row] = await tx
+    .insert(supplierProducts)
+    .values({
+      ...d,
+      attributes,
+      brandId,
+      orgId: a.orgId,
+      normalizedName: normalizeText(`${d.nameEn} ${d.nameAr} ${d.brandName ?? ""} ${d.model ?? ""}`),
+      matchStatus: d.canonicalProductId ? "confirmed" : "unmatched",
+      matchSource: d.canonicalProductId ? "manual" : null,
+    })
+    .returning();
+  await audit(a.ctx, { action: "product.created", entityType: "supplier_product", entityId: row!.id, orgId: a.orgId, data: { sku: d.sku, ...auditExtra(a) } }, tx);
+  return row!;
+}
+
+const NUMERIC_FIELDS = new Set(["packSize", "moq", "orderIncrement", "vatRate"]);
+const canon = (v: unknown): unknown =>
+  v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([k, x]) => [k, canon(x)])) : (v ?? null);
+
+/** Fields whose value really changed (numeric fields compared as decimals, objects key-order independent). */
+function changedFields(before: Record<string, unknown>, after: Record<string, unknown>): string[] {
+  return Object.keys(after).filter((k) => {
+    const a = after[k];
+    const b = before[k];
+    if (NUMERIC_FIELDS.has(k)) return !dec(String(a ?? 0)).eq(dec(String(b ?? 0)));
+    return JSON.stringify(canon(a)) !== JSON.stringify(canon(b));
+  });
+}
+
+async function applyProductUpdate(tx: Tx, a: Actor, id: string, d: z.output<typeof productSchema>) {
+  const [before] = await tx.select().from(supplierProducts).where(and(eq(supplierProducts.id, id), eq(supplierProducts.orgId, a.orgId))).limit(1).for("update");
+  if (!before) throw notFound("Product");
+  const attributes = await validateProduct(tx, d);
+  if (d.sku !== before.sku) {
+    const [dup] = await tx.select({ id: supplierProducts.id }).from(supplierProducts).where(and(eq(supplierProducts.orgId, a.orgId), eq(supplierProducts.sku, d.sku))).limit(1);
+    if (dup) throw new AppError("CONFLICT", "SKU already exists", { key: "sku_exists" });
+  }
+  const brandId = d.brandName ? await ensureBrand(tx, d.brandName) : null;
+  const canonicalChanged = (d.canonicalProductId ?? null) !== before.canonicalProductId;
+  const [row] = await tx
+    .update(supplierProducts)
+    .set({
+      ...d,
+      attributes,
+      brandId,
+      normalizedName: normalizeText(`${d.nameEn} ${d.nameAr} ${d.brandName ?? ""} ${d.model ?? ""}`),
+      ...(canonicalChanged ? { matchStatus: d.canonicalProductId ? "confirmed" : "unmatched", matchSource: d.canonicalProductId ? "manual" : null } : {}),
+      isPublished: d.status === "active" ? before.isPublished : false,
+    })
+    .where(eq(supplierProducts.id, id))
+    .returning();
+  const changed = changedFields(before as Record<string, unknown>, { ...d, attributes });
+  await audit(a.ctx, { action: "product.updated", entityType: "supplier_product", entityId: id, orgId: a.orgId, data: { sku: d.sku, ...(a.onBehalf ? { fields: changed } : {}), ...auditExtra(a) } }, tx);
+  return row!;
+}
+
+async function applyPublish(tx: Tx, a: Actor, id: string, published: boolean) {
+  const [p] = await tx.select().from(supplierProducts).where(and(eq(supplierProducts.id, id), eq(supplierProducts.orgId, a.orgId))).limit(1).for("update");
+  if (!p) throw notFound("Product");
+  if (published) {
+    const [sp] = await tx.select({ status: supplierProfiles.status, acceptsStoreOrders: supplierProfiles.acceptsStoreOrders }).from(supplierProfiles).where(eq(supplierProfiles.orgId, a.orgId)).limit(1);
+    if (sp?.status !== "approved") throw new AppError("INVALID_STATE", "Supplier must be approved to publish products", { key: "supplier_not_approved" });
+    if (!sp.acceptsStoreOrders) throw new AppError("INVALID_STATE", "Store orders are disabled in your profile", { key: "store_orders_disabled" });
+    if (p.status !== "active") throw new AppError("INVALID_STATE", "Only active products can be published", { key: "product_not_active" });
+    const [price] = await tx
+      .select({ id: priceListItems.id })
+      .from(priceListItems)
+      .innerJoin(priceLists, eq(priceLists.id, priceListItems.priceListId))
+      .where(and(eq(priceListItems.supplierProductId, id), eq(priceLists.kind, "retail"), eq(priceLists.isActive, true)))
+      .limit(1);
+    if (!price) throw new AppError("INVALID_STATE", "A retail price is required before publishing", { key: "retail_price_required" });
+  }
+  await tx.update(supplierProducts).set({ isPublished: published }).where(eq(supplierProducts.id, id));
+  await audit(a.ctx, { action: published ? "product.published" : "product.unpublished", entityType: "supplier_product", entityId: id, orgId: a.orgId, data: auditExtra(a) }, tx);
+}
+
 export async function createProduct(ctx: Ctx, input: ProductInput, tx0?: Tx) {
   requireOrg(ctx, "supplier");
   authorize(ctx, "products.manage", { write: true });
   const d = productSchema.parse(input);
-  const run = async (tx: Tx) => {
-    const attributes = await validateProduct(tx, d);
-    const [dup] = await tx.select({ id: supplierProducts.id }).from(supplierProducts).where(and(eq(supplierProducts.orgId, ctx.orgId!), eq(supplierProducts.sku, d.sku))).limit(1);
-    if (dup) throw new AppError("CONFLICT", "SKU already exists", { key: "sku_exists", details: { sku: d.sku } });
-    const brandId = d.brandName ? await ensureBrand(tx, d.brandName) : null;
-    const [row] = await tx
-      .insert(supplierProducts)
-      .values({
-        ...d,
-        attributes,
-        brandId,
-        orgId: ctx.orgId!,
-        normalizedName: normalizeText(`${d.nameEn} ${d.nameAr} ${d.brandName ?? ""} ${d.model ?? ""}`),
-        matchStatus: d.canonicalProductId ? "confirmed" : "unmatched",
-        matchSource: d.canonicalProductId ? "manual" : null,
-      })
-      .returning();
-    await audit(ctx, { action: "product.created", entityType: "supplier_product", entityId: row!.id, data: { sku: d.sku } }, tx);
-    return row!;
-  };
+  const run = (tx: Tx) => insertProduct(tx, { ctx, orgId: ctx.orgId! }, d);
   return tx0 ? run(tx0) : withContext(dbCtx(ctx), run);
 }
 
@@ -104,31 +173,7 @@ export async function updateProduct(ctx: Ctx, id: string, input: ProductInput, t
   requireOrg(ctx, "supplier");
   authorize(ctx, "products.manage", { write: true });
   const d = productSchema.parse(input);
-  const run = async (tx: Tx) => {
-    const [before] = await tx.select().from(supplierProducts).where(and(eq(supplierProducts.id, id), eq(supplierProducts.orgId, ctx.orgId!))).limit(1);
-    if (!before) throw notFound("Product");
-    const attributes = await validateProduct(tx, d);
-    if (d.sku !== before.sku) {
-      const [dup] = await tx.select({ id: supplierProducts.id }).from(supplierProducts).where(and(eq(supplierProducts.orgId, ctx.orgId!), eq(supplierProducts.sku, d.sku))).limit(1);
-      if (dup) throw new AppError("CONFLICT", "SKU already exists", { key: "sku_exists" });
-    }
-    const brandId = d.brandName ? await ensureBrand(tx, d.brandName) : null;
-    const canonicalChanged = (d.canonicalProductId ?? null) !== before.canonicalProductId;
-    const [row] = await tx
-      .update(supplierProducts)
-      .set({
-        ...d,
-        attributes,
-        brandId,
-        normalizedName: normalizeText(`${d.nameEn} ${d.nameAr} ${d.brandName ?? ""} ${d.model ?? ""}`),
-        ...(canonicalChanged ? { matchStatus: d.canonicalProductId ? "confirmed" : "unmatched", matchSource: d.canonicalProductId ? "manual" : null } : {}),
-        isPublished: d.status === "active" ? before.isPublished : false,
-      })
-      .where(eq(supplierProducts.id, id))
-      .returning();
-    await audit(ctx, { action: "product.updated", entityType: "supplier_product", entityId: id, data: { sku: d.sku } }, tx);
-    return row!;
-  };
+  const run = (tx: Tx) => applyProductUpdate(tx, { ctx, orgId: ctx.orgId! }, id, d);
   return tx0 ? run(tx0) : withContext(dbCtx(ctx), run);
 }
 
@@ -136,25 +181,7 @@ export async function updateProduct(ctx: Ctx, id: string, input: ProductInput, t
 export async function setPublished(ctx: Ctx, id: string, published: boolean) {
   requireOrg(ctx, "supplier");
   authorize(ctx, "products.manage", { write: true });
-  return withContext(dbCtx(ctx), async (tx) => {
-    const [p] = await tx.select().from(supplierProducts).where(and(eq(supplierProducts.id, id), eq(supplierProducts.orgId, ctx.orgId))).limit(1);
-    if (!p) throw notFound("Product");
-    if (published) {
-      const [sp] = await tx.select({ status: supplierProfiles.status, acceptsStoreOrders: supplierProfiles.acceptsStoreOrders }).from(supplierProfiles).where(eq(supplierProfiles.orgId, ctx.orgId)).limit(1);
-      if (sp?.status !== "approved") throw new AppError("INVALID_STATE", "Supplier must be approved to publish products", { key: "supplier_not_approved" });
-      if (!sp.acceptsStoreOrders) throw new AppError("INVALID_STATE", "Store orders are disabled in your profile", { key: "store_orders_disabled" });
-      if (p.status !== "active") throw new AppError("INVALID_STATE", "Only active products can be published", { key: "product_not_active" });
-      const [price] = await tx
-        .select({ id: priceListItems.id })
-        .from(priceListItems)
-        .innerJoin(priceLists, eq(priceLists.id, priceListItems.priceListId))
-        .where(and(eq(priceListItems.supplierProductId, id), eq(priceLists.kind, "retail"), eq(priceLists.isActive, true)))
-        .limit(1);
-      if (!price) throw new AppError("INVALID_STATE", "A retail price is required before publishing", { key: "retail_price_required" });
-    }
-    await tx.update(supplierProducts).set({ isPublished: published }).where(eq(supplierProducts.id, id));
-    await audit(ctx, { action: published ? "product.published" : "product.unpublished", entityType: "supplier_product", entityId: id }, tx);
-  });
+  return withContext(dbCtx(ctx), (tx) => applyPublish(tx, { ctx, orgId: ctx.orgId }, id, published));
 }
 
 export async function getMyProduct(ctx: Ctx, id: string) {
@@ -211,6 +238,131 @@ export async function listMyProducts(ctx: Ctx, opts: { q?: string; status?: stri
       .offset(offset);
     const [c] = await tx.select({ n: sql<number>`count(*)::int` }).from(supplierProducts).where(where);
     return { items, total: c?.n ?? 0, page, pageSize };
+  });
+}
+
+// ------------------------------------------------------------------------------------------ platform admin (on behalf of suppliers)
+//
+// Platform admins with `admin.catalog` can see every supplier's products and create / edit / (un)publish them on the
+// supplier's behalf. The same validation and publishing rules apply as for the supplier. Every write requires a reason
+// and is audited against the SUPPLIER's organization (visible in its audit log) with the admin as actor. Prices and
+// stock stay with the supplier and are shown read-only here.
+
+const reasonSchema = z.string().trim().min(3).max(500);
+
+function adminReason(reason: string | null | undefined) {
+  const r = reasonSchema.safeParse(reason ?? "");
+  if (!r.success) throw validation("A reason is required", { key: "reason_required", field: "reason" });
+  return r.data;
+}
+
+async function supplierOrgOrThrow(tx: Tx, orgId: string) {
+  const [o] = await tx.select({ id: organizations.id, type: organizations.type, status: organizations.status, nameAr: organizations.nameAr, nameEn: organizations.nameEn }).from(organizations).where(eq(organizations.id, orgId)).limit(1);
+  if (!o || o.type !== "supplier") throw notFound("Supplier");
+  return o;
+}
+
+export async function adminListSuppliersForProducts(ctx: Ctx) {
+  authorizeAdmin(ctx, "admin.catalog");
+  return withSystem((tx) =>
+    tx
+      .select({ id: organizations.id, nameAr: organizations.nameAr, nameEn: organizations.nameEn, status: organizations.status, profileStatus: supplierProfiles.status })
+      .from(organizations)
+      .leftJoin(supplierProfiles, eq(supplierProfiles.orgId, organizations.id))
+      .where(eq(organizations.type, "supplier"))
+      .orderBy(asc(organizations.nameAr))
+      .limit(1000),
+  );
+}
+
+export async function adminListProducts(ctx: Ctx, opts: { q?: string; supplierOrgId?: string; status?: string; published?: "yes" | "no"; page?: number; pageSize?: number } = {}) {
+  authorizeAdmin(ctx, "admin.catalog");
+  const { limit, offset, page, pageSize } = pageParams(opts.page, opts.pageSize ?? 30);
+  return withSystem(async (tx) => {
+    const q = opts.q ? normalizeText(opts.q) : null;
+    const rawSku = opts.q?.trim().toLowerCase() ?? "";
+    const where = and(
+      opts.supplierOrgId ? eq(supplierProducts.orgId, opts.supplierOrgId) : undefined,
+      opts.status ? eq(supplierProducts.status, opts.status) : undefined,
+      opts.published ? eq(supplierProducts.isPublished, opts.published === "yes") : undefined,
+      q ? or(sql`${supplierProducts.normalizedName} like ${"%" + likeEscape(q) + "%"}`, sql`lower(${supplierProducts.sku}) like ${"%" + likeEscape(rawSku) + "%"}`) : undefined,
+    );
+    const items = await tx
+      .select({
+        id: supplierProducts.id,
+        sku: supplierProducts.sku,
+        nameAr: supplierProducts.nameAr,
+        nameEn: supplierProducts.nameEn,
+        status: supplierProducts.status,
+        isPublished: supplierProducts.isPublished,
+        saleUnit: supplierProducts.saleUnit,
+        updatedAt: supplierProducts.updatedAt,
+        supplierOrgId: supplierProducts.orgId,
+        supplierAr: organizations.nameAr,
+        supplierEn: organizations.nameEn,
+        available: sql<string>`product_available_qty(${supplierProducts.id})`,
+      })
+      .from(supplierProducts)
+      .innerJoin(organizations, eq(organizations.id, supplierProducts.orgId))
+      .where(where)
+      .orderBy(desc(supplierProducts.updatedAt))
+      .limit(limit)
+      .offset(offset);
+    const [c] = await tx.select({ n: sql<number>`count(*)::int` }).from(supplierProducts).where(where);
+    return { items, total: c?.n ?? 0, page, pageSize };
+  });
+}
+
+export async function adminGetProduct(ctx: Ctx, id: string) {
+  authorizeAdmin(ctx, "admin.catalog");
+  return withSystem(async (tx) => {
+    const [p] = await tx.select().from(supplierProducts).where(eq(supplierProducts.id, id)).limit(1);
+    if (!p) throw notFound("Product");
+    const supplier = await supplierOrgOrThrow(tx, p.orgId);
+    const [profile] = await tx.select({ status: supplierProfiles.status, acceptsStoreOrders: supplierProfiles.acceptsStoreOrders }).from(supplierProfiles).where(eq(supplierProfiles.orgId, p.orgId)).limit(1);
+    const prices = await tx
+      .select({ item: priceListItems, list: priceLists })
+      .from(priceListItems)
+      .innerJoin(priceLists, eq(priceLists.id, priceListItems.priceListId))
+      .where(eq(priceListItems.supplierProductId, id))
+      .orderBy(asc(priceLists.kind), asc(priceListItems.minQty));
+    const stock = await tx
+      .select({ warehouseId: inventoryLevels.warehouseId, onHand: inventoryLevels.onHand, reserved: inventoryLevels.reserved, warehouse: warehouses.name })
+      .from(inventoryLevels)
+      .innerJoin(warehouses, eq(warehouses.id, inventoryLevels.warehouseId))
+      .where(eq(inventoryLevels.supplierProductId, id));
+    return { product: p, supplier: { ...supplier, profileStatus: profile?.status ?? null, acceptsStoreOrders: profile?.acceptsStoreOrders ?? false }, prices, stock };
+  });
+}
+
+export async function adminCreateProduct(ctx: Ctx, supplierOrgId: string, input: ProductInput, reason: string) {
+  authorizeAdmin(ctx, "admin.catalog");
+  const why = adminReason(reason);
+  const d = productSchema.parse(input);
+  return withSystem(async (tx) => {
+    await supplierOrgOrThrow(tx, supplierOrgId);
+    return insertProduct(tx, { ctx, orgId: supplierOrgId, onBehalf: { reason: why } }, d);
+  });
+}
+
+export async function adminUpdateProduct(ctx: Ctx, id: string, input: ProductInput, reason: string) {
+  authorizeAdmin(ctx, "admin.catalog");
+  const why = adminReason(reason);
+  const d = productSchema.parse(input);
+  return withSystem(async (tx) => {
+    const [p] = await tx.select({ orgId: supplierProducts.orgId }).from(supplierProducts).where(eq(supplierProducts.id, id)).limit(1);
+    if (!p) throw notFound("Product");
+    return applyProductUpdate(tx, { ctx, orgId: p.orgId, onBehalf: { reason: why } }, id, d);
+  });
+}
+
+export async function adminSetPublished(ctx: Ctx, id: string, published: boolean, reason: string) {
+  authorizeAdmin(ctx, "admin.catalog");
+  const why = adminReason(reason);
+  return withSystem(async (tx) => {
+    const [p] = await tx.select({ orgId: supplierProducts.orgId }).from(supplierProducts).where(eq(supplierProducts.id, id)).limit(1);
+    if (!p) throw notFound("Product");
+    await applyPublish(tx, { ctx, orgId: p.orgId, onBehalf: { reason: why } }, id, published);
   });
 }
 

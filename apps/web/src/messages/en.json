@@ -125,7 +125,8 @@
   "shipping": "Shipping",
   "finance": "Finance",
   "returns": "Returns",
-  "aiUsage": "AI usage"
+  "aiUsage": "AI usage",
+  "supplierProducts": "Supplier products"
  },
  "auth": {
   "loginTitle": "Sign in",
@@ -1932,5 +1933,19 @@
    "adminShortcuts": "Admin shortcuts",
    "salesByMonth": "Monthly sales"
   }
+ },
+ "admProducts": {
+  "title": "Supplier products",
+  "description": "All supplier products. Edits and new products are made on the supplier’s behalf and recorded in its audit log.",
+  "supplier": "Supplier",
+  "allSuppliers": "All suppliers",
+  "chooseSupplier": "Choose a supplier",
+  "reason": "Reason for the change",
+  "reasonHint": "Required — shown in the supplier’s audit log.",
+  "newTitle": "New product on behalf of a supplier",
+  "newHint": "The product is created for the selected supplier and follows the same validation and publishing rules.",
+  "notApproved": "Supplier not approved",
+  "onBehalfNote": "You are editing this product on the supplier’s behalf. Prices and stock are managed by the supplier and shown here read-only.",
+  "readOnlyBySupplier": "Read-only — managed by the supplier in its portal."
  }
 }

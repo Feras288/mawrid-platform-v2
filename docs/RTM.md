@@ -47,6 +47,7 @@ completion from this table).
 | REQ-CAT-02 | 9 systems, extensible taxonomy (§7.2) | catalog | Seeded roots; admin CRUD | reference sync seeds 9 systems / 57 subcategories; admin category CRUD; store category tree | Tested |
 | REQ-CAT-03 | Dynamic engineering attributes per category (§7.3) | catalog | Attribute defs per category | pricing.unit attribute normalization; e2e supplier dynamic attributes | Tested |
 | REQ-CAT-04 | Data quality: dedupe, validation, provenance, bulk import, no auto-merge (§7.4) | catalog | Duplicate candidates; import report | suppliers.int duplicates never auto-merged, bulk import report | Tested |
+| REQ-CAT-ADM-01 | Admin can view, create and edit supplier products on the supplier's behalf (owner request 2026-11-10) | supplier-products | Admin list/detail/create/edit/publish, reason required, audit on supplier org | admin-products.int (authz, ownership, SKU rules, publish rules, filters, audit visible to supplier under RLS); e2e admin-products.spec | Tested |
 | REQ-BOQ-01 | Inputs XLSX, CSV, text PDF, scanned PDF, images, multi-page (§8.1) | boq | Each format processed or clearly routed | boq.int XLSX/PDF/images→manual; OCR via OCR_LANG_PATH (Known Limitation: Arabic OCR accuracy) | Tested |
 | REQ-BOQ-02 | 14-step pipeline (§8.2) | boq | Stage states persisted, resumable | boq.int pipeline states | Tested |
 | REQ-BOQ-03 | Line model fields incl. provenance, confidence, review, history (§8.3) | boq | Schema + UI | boq.int, e2e boq (review, revisions) | Tested |

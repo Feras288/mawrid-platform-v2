@@ -164,3 +164,14 @@ Amendment (round 3): refund idempotency is a per-provider capability (`refundIde
 for payment creation (`given_id`) only, so it is "unproven": after the first POST a refund with an unknown outcome is never
 re-POSTed; it is reconciled by reading the payment (positive evidence only) and escalated to `manual_required`
 (`outcome_unknown`) after 30 minutes. Re-sending with the same key remains for providers that prove it.
+
+## ADR-026 — Admin management of supplier products (2026-11-10)
+Requested by the owner. Platform admins with `admin.catalog` can list all supplier products, create a product
+for a chosen supplier and edit / (un)publish any supplier product. The product stays owned by the supplier
+(`org_id` = supplier); the same validation, SKU uniqueness and publishing rules apply (shared internal functions,
+not a parallel code path). Every write requires a reason (3–500 chars) and is audited with the admin as actor and
+`org_id` = the supplier, so the supplier sees it in its own audit log; edits record the fields that actually
+changed. Prices and stock remain the supplier's responsibility and are shown read-only in the admin page.
+Data access runs in system context after `authorizeAdmin`; supplier RLS is unchanged. (ADR-025 is used by the
+hardening branch.)
+

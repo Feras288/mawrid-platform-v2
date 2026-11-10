@@ -33,7 +33,27 @@ export type ProductData = {
   status: string;
 };
 
-export function ProductForm({ product, categories, units }: { product?: ProductData; categories: CatOpt[]; units: UnitOpt[] }) {
+type SaveResult = Awaited<ReturnType<typeof saveProductAction>>;
+
+/**
+ * Product form. Defaults to the supplier portal; the admin console passes its own `action`, `redirectBase` and extra
+ * fields (`children`, e.g. supplier and reason) rendered at the top of the form.
+ */
+export function ProductForm({
+  product,
+  categories,
+  units,
+  action = saveProductAction,
+  redirectBase = "/supplier/products",
+  children,
+}: {
+  product?: ProductData;
+  categories: CatOpt[];
+  units: UnitOpt[];
+  action?: (fd: FormData) => Promise<SaveResult>;
+  redirectBase?: string;
+  children?: React.ReactNode;
+}) {
   const t = useTranslations();
   const locale = useLocale();
   const L = (r: { nameAr: string; nameEn: string }) => (locale === "ar" ? r.nameAr : r.nameEn);
@@ -51,8 +71,9 @@ export function ProductForm({ product, categories, units }: { product?: ProductD
   }, [categoryId]);
   const leafs = categories.filter((c) => c.depth > 0);
   return (
-    <ActionForm action={saveProductAction} successMessage={t("products.saved")} redirectTo={(d: { id: string }) => `/supplier/products/${d.id}`}>
+    <ActionForm action={action} successMessage={t("products.saved")} redirectTo={(d: { id: string }) => `${redirectBase}/${d.id}`}>
       <FormError />
+      {children}
       {product?.id ? <input type="hidden" name="id" value={product.id} /> : null}
       <div className="grid gap-4 md:grid-cols-2">
         <Field name="sku" required label={t("products.sku")} defaultValue={product?.sku} dir="ltr" />

@@ -60,6 +60,7 @@ export function adminNav(): NavItem[] {
     { href: "/admin/users", labelKey: "nav.users", group: "ux.navGroups.governance", icon: "members" },
     { href: "/admin/organizations", labelKey: "ux.portal.organizations", group: "ux.navGroups.governance", icon: "orgs" },
     { href: "/admin/suppliers", labelKey: "nav.suppliers", group: "ux.navGroups.governance", icon: "profile" },
+    { href: "/admin/products", labelKey: "nav.supplierProducts", group: "ux.navGroups.commerce", icon: "products" },
     { href: "/admin/catalog", labelKey: "nav.catalog", group: "ux.navGroups.commerce", icon: "products" },
     { href: "/admin/store-orders", labelKey: "nav.storeOrders", group: "ux.navGroups.commerce", icon: "orders" },
     { href: "/admin/finance", labelKey: "nav.finance", group: "ux.navGroups.commerce", icon: "finance" },
