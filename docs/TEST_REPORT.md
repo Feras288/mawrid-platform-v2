@@ -96,4 +96,8 @@ RLS; brand facet cached 5 min; batched stock lookups. Not measured: 20k-line BOQ
 - `sendDelivery` rethrew inside the transaction so attempt/failure records were rolled back → persisted, then rethrown after commit (procurement.int).
 - Dual-button forms (save vs submit quotation, approve vs reject) set intent via state in onClick, racing the submit → submitter `name`/`value` used instead.
 - E2E located POs by number; numbers are per buyer org so a supplier sees duplicates from different buyers → navigate by id (list shows buyer name).
+
+| 2026-11-09 | Hardening P0 (unit/integration/E2E) | `pnpm test` / `test:integration` / `test:e2e` | 75/75 · 90/90 · 23/23 passed | + AUD-001/004/005/006/007 reproduction & regression tests (webhook redelivery, duplicate captures, refund recovery, duplicate PO lines, cancel-vs-ship races); see HARDENING_REPORT.md |
+| 2026-11-09 | Hardening P0 round 2 (unit/integration/E2E) | `pnpm test` / `test:integration` / `test:e2e` | 76/76 · 108/108 · 23/23 passed | + provider-accepted refund reconciliation, OBS-1 ledger fix with per-account assertions, historical duplicate-capture settlement; migration 0014 |
+| 2026-11-09 | Hardening P0 round 3 (unit/integration/E2E) | `pnpm test` / `test:integration` / `test:e2e` | 78/78 · 115/115 · 23/23 passed | + Moyasar refund-idempotency decision: lost-response/never-sent/crash scenarios without automatic re-POST |
 | 2026-11-10 | Admin supplier products (unit/integration/E2E) | `pnpm test` / `test:integration` / `test:e2e` | 72/72 · 68/68 · 24/24 passed | + admin-products.int (7) and e2e admin-products.spec (list, create on behalf, edit, audit) |

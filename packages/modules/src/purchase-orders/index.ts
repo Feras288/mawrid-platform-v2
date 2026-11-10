@@ -68,10 +68,35 @@ async function refreshFulfillment(tx: Tx, poId: string) {
   return status;
 }
 
-async function loadBuyerPo(tx: Tx, ctx: Ctx, poId: string) {
-  const [po] = await tx.select().from(purchaseOrders).where(and(eq(purchaseOrders.id, poId), eq(purchaseOrders.orgId, ctx.orgId!))).limit(1);
+/**
+ * Buyer-side PO load. With `lock`, the row is locked FOR UPDATE and returned in its latest committed state.
+ * Every writer of PO state (cancel, ship, receive, complete, acknowledge, delay) takes this lock first and
+ * only then item rows, so they serialise and each re-validates the status it acts on under the lock.
+ */
+async function loadBuyerPo(tx: Tx, ctx: Ctx, poId: string, opts: { lock?: boolean } = {}) {
+  const q = tx.select().from(purchaseOrders).where(and(eq(purchaseOrders.id, poId), eq(purchaseOrders.orgId, ctx.orgId!))).limit(1);
+  const [po] = await (opts.lock ? q.for("update") : q);
   if (!po) throw notFound("Purchase order");
   return po;
+}
+
+/** Supplier-side counterpart: lock the approved PO of this supplier and re-check that it is still open. */
+async function lockSupplierPo(tx: Tx, ctx: Ctx, poId: string) {
+  const [po] = await tx.select().from(purchaseOrders).where(and(eq(purchaseOrders.id, poId), eq(purchaseOrders.supplierOrgId, ctx.orgId!))).limit(1).for("update");
+  if (!po) throw notFound("Purchase order");
+  if (po.approvalStatus === "cancelled" || ["delivered", "completed", "cancelled"].includes(po.fulfillmentStatus)) throw invalidState("PO is closed", { key: "po_closed" });
+  if (po.approvalStatus !== "approved") throw notFound("Purchase order");
+  return po;
+}
+
+/** A PO line may appear once per shipment/receipt: repeated lines would be judged one by one against stale quantities. */
+function assertUniqueLines(lines: { poItemId: string }[]) {
+  const seen = new Set<string>();
+  for (const l of lines) {
+    const k = l.poItemId.toLowerCase();
+    if (seen.has(k)) throw validation("A PO line can appear only once; combine the quantities", { key: "duplicate_line" });
+    seen.add(k);
+  }
 }
 
 // ------------------------------------------------------------------------------------------ create from award
@@ -307,7 +332,7 @@ export async function cancelPo(ctx: Ctx, poId: string, reason: string) {
   authorize(ctx, "po.cancel", { write: true });
   const why = z.string().trim().min(3).max(500).parse(reason);
   return withContext(dbCtx(ctx), async (tx) => {
-    const po = await loadBuyerPo(tx, ctx, poId);
+    const po = await loadBuyerPo(tx, ctx, poId, { lock: true });
     if (po.approvalStatus === "cancelled") throw invalidState("Already cancelled");
     const [s] = await tx.select({ n: sql<number>`count(*)::int` }).from(shipments).where(eq(shipments.poId, poId));
     if ((s?.n ?? 0) > 0) throw invalidState("POs with shipments cannot be cancelled", { key: "po_has_shipments" });
@@ -356,12 +381,15 @@ export async function acknowledgePo(ctx: Ctx, poId: string) {
   authorize(ctx, "supplier.po.fulfil", { write: true });
   const po = await loadSupplierPo(ctx, poId);
   if (po.acknowledgedAt) return;
-  await withSystem(async (tx) => {
-    await tx.update(purchaseOrders).set({ acknowledgedAt: new Date(), fulfillmentStatus: po.fulfillmentStatus === "not_started" ? "preparing" : po.fulfillmentStatus }).where(eq(purchaseOrders.id, poId));
-    await event(tx, po, ctx, "acknowledged");
+  const acknowledged = await withSystem(async (tx) => {
+    const cur = await lockSupplierPo(tx, ctx, poId);
+    if (cur.acknowledgedAt) return false;
+    await tx.update(purchaseOrders).set({ acknowledgedAt: new Date(), fulfillmentStatus: cur.fulfillmentStatus === "not_started" ? "preparing" : cur.fulfillmentStatus }).where(eq(purchaseOrders.id, poId));
+    await event(tx, cur, ctx, "acknowledged");
     await audit(ctx, { action: "po.acknowledged", entityType: "purchase_order", entityId: poId, orgId: ctx.orgId }, tx);
+    return true;
   });
-  await notifyBuyerStatus(po, "preparing");
+  if (acknowledged) await notifyBuyerStatus(po, "preparing");
 }
 
 export const delaySchema = z.object({ reason: z.string().trim().min(3).max(1000), newExpectedAt: z.coerce.date() });
@@ -373,6 +401,7 @@ export async function reportDelay(ctx: Ctx, poId: string, input: z.input<typeof 
   const po = await loadSupplierPo(ctx, poId);
   if (["delivered", "completed", "cancelled"].includes(po.fulfillmentStatus)) throw invalidState("PO is closed", { key: "po_closed" });
   await withSystem(async (tx) => {
+    await lockSupplierPo(tx, ctx, poId);
     await tx.update(purchaseOrders).set({ isDelayed: true, delayReason: d.reason, expectedDeliveryAt: d.newExpectedAt }).where(eq(purchaseOrders.id, poId));
     await event(tx, po, ctx, "delay_reported", { reason: d.reason, newExpectedAt: d.newExpectedAt.toISOString(), previous: po.expectedDeliveryAt?.toISOString() ?? null });
     await audit(ctx, { action: "po.delay_reported", entityType: "purchase_order", entityId: poId, orgId: ctx.orgId, data: { reason: d.reason } }, tx);
@@ -399,7 +428,11 @@ export async function createShipment(ctx: Ctx, poId: string, input: z.input<type
   if (["delivered", "completed", "cancelled"].includes(po.fulfillmentStatus)) throw invalidState("PO is closed", { key: "po_closed" });
   const lines = d.items.filter((i) => dec(i.quantity).gt(0));
   if (!lines.length) throw validation("Ship at least one quantity", { key: "shipment_empty" });
+  assertUniqueLines(lines);
   const shipment = await withSystem(async (tx) => {
+    // the status checked above was read outside this transaction: re-check it under the PO lock, which
+    // cancelPo also takes, so a shipment can never be registered against a PO that is being cancelled
+    const cur = await lockSupplierPo(tx, ctx, poId);
     const items = await tx.select().from(poItems).where(eq(poItems.poId, poId)).for("update");
     for (const l of lines) {
       const it = items.find((i) => i.id === l.poItemId);
@@ -409,13 +442,13 @@ export async function createShipment(ctx: Ctx, poId: string, input: z.input<type
     const [{ n }] = (await tx.select({ n: sql<number>`count(*)::int` }).from(shipments).where(eq(shipments.poId, poId))) as [{ n: number }];
     const [s] = await tx
       .insert(shipments)
-      .values({ poId, orgId: po.orgId, supplierOrgId: po.supplierOrgId, reference: `${po.code}-S${n + 1}`, carrier: d.carrier ?? null, trackingNumber: d.trackingNumber ?? null, expectedAt: d.expectedAt ?? null, notes: d.notes ?? null, createdBy: ctx.userId })
+      .values({ poId, orgId: po.orgId, supplierOrgId: po.supplierOrgId, reference: `${cur.code}-S${n + 1}`, carrier: d.carrier ?? null, trackingNumber: d.trackingNumber ?? null, expectedAt: d.expectedAt ?? null, notes: d.notes ?? null, createdBy: ctx.userId })
       .returning();
     for (const l of lines) {
       await tx.insert(shipmentItems).values({ shipmentId: s!.id, poItemId: l.poItemId, orgId: po.orgId, supplierOrgId: po.supplierOrgId, quantity: dec(l.quantity).toFixed(4) });
       await tx.update(poItems).set({ shippedQty: sql`${poItems.shippedQty} + ${dec(l.quantity).toFixed(4)}::numeric` }).where(eq(poItems.id, l.poItemId));
     }
-    if (!po.acknowledgedAt) await tx.update(purchaseOrders).set({ acknowledgedAt: new Date() }).where(eq(purchaseOrders.id, poId));
+    if (!cur.acknowledgedAt) await tx.update(purchaseOrders).set({ acknowledgedAt: new Date() }).where(eq(purchaseOrders.id, poId));
     const status = await refreshFulfillment(tx, poId);
     await event(tx, po, ctx, "shipment_created", { shipmentId: s!.id, reference: s!.reference, tracking: d.trackingNumber, lines: lines.length, status });
     await audit(ctx, { action: "po.shipment_created", entityType: "purchase_order", entityId: poId, orgId: ctx.orgId, data: { shipmentId: s!.id } }, tx);
@@ -440,9 +473,14 @@ export async function recordReceipt(ctx: Ctx, poId: string, input: z.input<typeo
   const d = receiptSchema.parse(input);
   const lines = d.items.filter((i) => dec(i.received).gt(0) || dec(i.rejected).gt(0));
   if (!lines.length) throw validation("Enter received quantities", { key: "receipt_empty" });
+  assertUniqueLines(lines);
   return withContext(dbCtx(ctx), async (tx) => {
-    const po = await loadBuyerPo(tx, ctx, poId);
+    const po = await loadBuyerPo(tx, ctx, poId, { lock: true });
     if (po.approvalStatus !== "approved" || ["completed", "cancelled"].includes(po.fulfillmentStatus)) throw invalidState("PO is not open for receiving", { key: "po_closed" });
+    if (d.shipmentId) {
+      const [sh] = await tx.select({ id: shipments.id }).from(shipments).where(and(eq(shipments.id, d.shipmentId), eq(shipments.poId, poId))).limit(1);
+      if (!sh) throw validation("Shipment does not belong to this purchase order", { key: "shipment_not_in_po" });
+    }
     const items = await tx.select().from(poItems).where(eq(poItems.poId, poId)).for("update");
     for (const l of lines) {
       const it = items.find((i) => i.id === l.poItemId);
@@ -467,7 +505,7 @@ export async function completePo(ctx: Ctx, poId: string) {
   requireOrg(ctx, "buyer");
   authorize(ctx, "po.receive", { write: true });
   return withContext(dbCtx(ctx), async (tx) => {
-    const po = await loadBuyerPo(tx, ctx, poId);
+    const po = await loadBuyerPo(tx, ctx, poId, { lock: true });
     if (po.fulfillmentStatus !== "delivered") throw invalidState("Only delivered POs can be completed", { key: "po_not_delivered" });
     await tx.update(purchaseOrders).set({ fulfillmentStatus: "completed", completedAt: new Date(), isDelayed: false }).where(eq(purchaseOrders.id, poId));
     await event(tx, po, ctx, "completed");
